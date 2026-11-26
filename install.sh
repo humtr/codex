@@ -138,44 +138,28 @@ verify_sha256_file() {
   [ "$actual" = "$expected" ] || fail "SHA-256 mismatch for $target_file (expected $expected, got $actual)"
 }
 
-fetch_https() {
-  url=$1
-  out=$2
-  max_bytes=$3
-  curl_bin=$(find_tool curl) || fail 'curl is required to download release assets'
-  "$curl_bin" --fail --silent --show-error --location \
-    --proto '=https' --proto-redir '=https' --tlsv1.2 \
-    --connect-timeout 15 --max-time 300 --max-filesize "$max_bytes" \
-    --output "$out" "$url" || fail "HTTPS download failed: $url"
-  require_regular_file "$out" 'downloaded asset'
-  size=$(wc -c < "$out" | tr -d '[:space:]')
-  case $size in ''|*[!0-9]*) fail "invalid downloaded byte size for $out" ;; esac
-  if [ "$size" -le 0 ] || [ "$size" -gt "$max_bytes" ]; then
-    fail "downloaded file out of bounds: $out"
+# Required and optional downloads share transport and byte bounds.
+fetch_asset() {
+  f_url=$1 f_out=$2 f_max=$3 f_mode=$4
+  f_curl=$(find_tool curl) || fail 'curl is required to download release assets'
+  set -- --fail --silent --location --proto '=https' --proto-redir '=https' --tlsv1.2 \
+    --connect-timeout 15 --max-filesize "$f_max" --output "$f_out"
+  if [ "$f_mode" = optional ]; then
+    "$f_curl" "$@" --max-time 60 "$f_url" 2>/dev/null || { rm -f "$f_out"; return 1; }
+  else
+    "$f_curl" "$@" --show-error --max-time 300 "$f_url" || fail "HTTPS download failed: $f_url"
+  fi
+  require_regular_file "$f_out" 'downloaded asset'
+  f_size=$(wc -c < "$f_out" | tr -d '[:space:]')
+  case $f_size in ''|*[!0-9]*) fail "invalid downloaded byte size for $f_out" ;; esac
+  if [ "$f_size" -le 0 ] || [ "$f_size" -gt "$f_max" ]; then
+    rm -f "$f_out"
+    fail "downloaded file out of bounds: $f_out"
   fi
 }
 
-fetch_optional_https() {
-  url=$1
-  out=$2
-  max_bytes=$3
-  curl_bin=$(find_tool curl) || fail 'curl is required to download release assets'
-  if ! "$curl_bin" --fail --silent --location \
-    --proto '=https' --proto-redir '=https' --tlsv1.2 \
-    --connect-timeout 15 --max-time 60 --max-filesize "$max_bytes" \
-    --output "$out" "$url" 2>/dev/null; then
-    rm -f "$out"
-    return 1
-  fi
-  require_regular_file "$out" 'downloaded optional asset'
-  size=$(wc -c < "$out" | tr -d '[:space:]')
-  case $size in ''|*[!0-9]*) rm -f "$out"; return 1 ;; esac
-  if [ "$size" -le 0 ] || [ "$size" -gt "$max_bytes" ]; then
-    rm -f "$out"
-    fail "downloaded optional file out of bounds: $out"
-  fi
-  return 0
-}
+fetch_https() { fetch_asset "$@" required; }
+fetch_optional_https() { fetch_asset "$@" optional; }
 
 write_embedded_release_pubkey() {
   cat > "$1" <<'EOF'
@@ -231,10 +215,6 @@ verify_component_sums_headers() {
   printf '%s\n' "$seq_val"
 }
 
-verify_signed_sums_headers() {
-  verify_component_sums_headers "$1" 'wrapper'
-}
-
 parse_signed_sums_commit() {
   h_cmt=$(sed -n '4p' "$1")
   cmt_val=${h_cmt#'# commit='}
@@ -277,6 +257,25 @@ read_recorded_release_sequence() {
   printf '%s\n' "$rec"
 }
 
+# Both install and recovery publish the same durable file records.
+publish_install_file() {
+  install_sync "$1"
+  mv -f "$1" "$2"
+  install_sync "$(dirname -- "$2")"
+}
+
+validate_signed_journal() {
+  if [ "$signed_sequence" = none ]; then
+    [ "$signed_key_sha" = none ] || fail 'contradictory unsigned install journal'
+  else
+    validate_release_sequence "$signed_sequence" 'journal signed sequence'
+    if ! { [ "$signed_sequence" != 0 ] && valid_sha_or_none "$signed_key_sha" &&
+           [ "$signed_key_sha" != none ]; }; then
+      fail 'invalid signed install journal'
+    fi
+  fi
+}
+
 # Preserve the verifier that admitted existing generations before replacing it.
 # Retired keys are local verification evidence, not download trust roots.
 retain_release_key() {
@@ -316,11 +315,7 @@ persist_signed_release_state() {
   done
   seq_now=$(read_recorded_release_sequence "$seq_dest")
   key_now=$(digest_or_none "$key_dest")
-  validate_release_sequence "$signed_sequence" 'journal signed sequence'
-  if ! { [ "$signed_sequence" != 0 ] && valid_sha_or_none "$signed_key_sha" &&
-         [ "$signed_key_sha" != none ]; }; then
-    fail 'invalid signed install journal'
-  fi
+  validate_signed_journal
   [ "$seq_now" -le "$signed_sequence" ] || fail 'signed release sequence advanced outside installer transaction'
 
   if [ "$install_format" = codex-install-v2 ]; then
@@ -361,9 +356,7 @@ persist_signed_release_state() {
   remove_owned_install_file "$seq_tmp"
   printf '%s\n' "$signed_sequence" > "$seq_tmp"
   chmod 0600 "$seq_tmp"
-  install_sync "$seq_tmp"
-  mv -f "$seq_tmp" "$seq_dest"
-  install_sync "$state_dir"
+  publish_install_file "$seq_tmp" "$seq_dest"
   key_tmp="$key_dir/.release-public-key.pem.tmp.$owner_pid"
   if [ "$key_now" != "$signed_key_sha" ]; then
     if [ "$install_format" = codex-install-v2 ]; then
@@ -441,9 +434,7 @@ write_install_phase() {
     printf 'signed_previous_sequence=%s\nsigned_previous_key_sha=%s\n' \
       "$signed_previous_sequence" "$signed_previous_key_sha" >> "$install_lock/transaction.next"
   fi
-  install_sync "$install_lock/transaction.next"
-  mv -f "$install_lock/transaction.next" "$install_lock/transaction"
-  install_sync "$install_lock"
+  publish_install_file "$install_lock/transaction.next" "$install_lock/transaction"
 }
 
 install_record_owner() {
@@ -453,9 +444,7 @@ install_record_owner() {
     fail 'incomplete installer process identity'
   fi
   printf 'pid=%s\nstart=%s\nboot=%s\n' "$$" "$start" "$boot" > "$install_lock/owner.next"
-  install_sync "$install_lock/owner.next"
-  mv -f "$install_lock/owner.next" "$install_lock/owner"
-  install_sync "$install_lock"
+  publish_install_file "$install_lock/owner.next" "$install_lock/owner"
 }
 
 qualified_generation_status() {
@@ -551,15 +540,32 @@ remove_owned_install_file() {
 
 verify_recovered_signed_state() {
   [ "$signed_sequence" = none ] && return 0
-  validate_release_sequence "$signed_sequence" 'journal signed sequence'
-  if ! { [ "$signed_sequence" != 0 ] && valid_sha_or_none "$signed_key_sha" &&
-         [ "$signed_key_sha" != none ]; }; then
-    fail 'invalid signed install journal'
-  fi
+  validate_signed_journal
   [ "$(read_recorded_release_sequence "$HOME/.local/share/codex/wrapper/release-sequence")" = "$signed_sequence" ] ||
     fail 'signed release sequence was not durably committed; preserving recovery journal'
   [ "$(digest_or_none "$HOME/.local/lib/codex/wrapper/release-public-key.pem")" = "$signed_key_sha" ] ||
     fail 'signed release key was not durably committed; preserving recovery journal'
+}
+
+restore_prior_executable() {
+  # Caller already proved the activation state unchanged and owns the lock.
+  r_actual=$1 r_backup=$2
+  [ "$r_actual" != "$before_sha" ] || return 0
+  [ "$r_actual" = "$candidate_sha" ] || return 1
+  if [ "$before_sha" = none ]; then
+    rm -f "$dest_bin" || return 1
+  else
+    [ "$(digest_or_none "$r_backup")" = "$before_sha" ] || return 1
+    mv -f "$r_backup" "$dest_bin" || return 1
+  fi
+  install_sync "$dest_dir"
+}
+
+clear_install_lock() {
+  for name in release-public-key.pem owner owner.next transaction transaction.next updater updater.next; do
+    remove_owned_install_file "$install_lock/$name"
+  done
+  rmdir "$install_lock" && install_sync "$dest_dir"
 }
 
 # Recovery is serialized separately so two stale-lock reclaimers cannot both
@@ -595,15 +601,7 @@ recover_install_lock() {
     signed_sequence=$(record_value signed_sequence "$install_lock/transaction" 2>/dev/null || printf 'none')
     signed_key_sha=$(record_value signed_key_sha "$install_lock/transaction" 2>/dev/null || printf 'none')
   fi
-  if [ "$signed_sequence" != none ]; then
-    validate_release_sequence "$signed_sequence" 'journal signed sequence'
-    if ! { [ "$signed_sequence" != 0 ] && valid_sha_or_none "$signed_key_sha" &&
-           [ "$signed_key_sha" != none ]; }; then
-      fail 'invalid signed install journal'
-    fi
-  elif [ "$signed_key_sha" != none ]; then
-    fail 'contradictory unsigned install journal'
-  fi
+  validate_signed_journal
   if ! { valid_sha_or_none "$before_sha" && valid_sha_or_none "$candidate_sha" &&
          valid_sha_or_none "$state_before_sha" && [ "$candidate_sha" != none ]; }; then
     fail 'invalid digest in install transaction'
@@ -638,20 +636,15 @@ recover_install_lock() {
          [ "$actual_sha" = "$candidate_sha" ] && [ "$signed_sequence" = none ]; then
         note 'recovered committed --skip-upstream executable without rerunning updater'
       elif [ "$actual_sha" = "$candidate_sha" ] && [ "$before_sha" != "$candidate_sha" ]; then
-        if [ "$before_sha" = none ]; then
-          rm -f "$dest_bin"
-        else
-          [ "$(digest_or_none "$recovered_backup")" = "$before_sha" ] ||
-            fail 'previous executable backup is missing or corrupt'
-          mv -f "$recovered_backup" "$dest_bin"
-        fi
-        install_sync "$dest_dir"
+        restore_prior_executable "$actual_sha" "$recovered_backup" ||
+          fail 'previous executable backup is missing or corrupt'
         note 'restored verified prior executable after interrupted pre-updater install'
       fi
       ;;
-    updating)
-      updater_is_quiescent
+    updating|updated)
+      [ "$recovered_phase" != updating ] || updater_is_quiescent
       if ! { [ "$actual_sha" = "$candidate_sha" ] && qualified_new_activation; }; then
+        [ "$recovered_phase" != updated ] || fail 'completed updater receipt contradicts activation metadata'
         fail 'updater outcome remains uncertain; preserving executable, backup and lock'
       fi
       persist_signed_release_state
@@ -666,13 +659,6 @@ recover_install_lock() {
       fi
       note 'recovered committed Wrapper without replaying components or updater'
       ;;
-    updated)
-      if ! { [ "$actual_sha" = "$candidate_sha" ] && qualified_new_activation; }; then
-        fail 'completed updater receipt contradicts activation metadata'
-      fi
-      persist_signed_release_state
-      note 'recovered completed update without replay'
-      ;;
     *)
       fail "unknown install phase $recovered_phase"
       ;;
@@ -682,11 +668,7 @@ recover_install_lock() {
   esac
   remove_owned_install_file "$recovered_tmp"
   remove_owned_install_file "$recovered_backup"
-  for name in release-public-key.pem owner owner.next transaction transaction.next updater updater.next; do
-    remove_owned_install_file "$install_lock/$name"
-  done
-  rmdir "$install_lock" || fail 'install lock contains unknown assets; refusing to remove'
-  install_sync "$dest_dir"
+  clear_install_lock || fail 'install lock contains unknown assets; refusing to remove'
   rmdir "$recovery_gate" || fail 'cannot release installer recovery gate'
   recovery_gate_owned=0
   signed_commit_started=0
@@ -918,27 +900,12 @@ finish_install() {
     # restore an old Wrapper over changed authoritative activation state.
     installed_now=$(digest_or_none "$dest_bin")
     state_now=$(activation_snapshot)
-    if [ "$state_now" = "$state_before_sha" ]; then
-      if [ "$installed_now" = "$candidate_sha" ]; then
-        if [ "$before_sha" = none ]; then
-          rm -f "$dest_bin" && install_sync "$dest_dir"
-          restored=$?
-        elif [ "$(digest_or_none "$backup_bin")" = "$before_sha" ]; then
-          mv -f "$backup_bin" "$dest_bin" && install_sync "$dest_dir"
-          restored=$?
-        else
-          restored=1
-        fi
-      elif [ "$installed_now" = "$before_sha" ]; then
-        restored=0
-      else
-        restored=1
-      fi
-      if [ "$restored" -eq 0 ]; then
-        swap_pending=0
-        note 'restored verified previous executable after failed install'
-      fi
+    if [ "$state_now" = "$state_before_sha" ] &&
+       restore_prior_executable "$installed_now" "$backup_bin"; then
+      swap_pending=0
+      note 'restored verified previous executable after failed install'
     fi
+
     if [ "$swap_pending" -eq 1 ]; then
       printf '%s\n' "codex install: unsafe to restore executable; preserving $install_lock and backup for explicit --recover" >&2
       result=1
@@ -950,20 +917,11 @@ finish_install() {
     result=1
   fi
   if [ "$swap_pending" -eq 0 ] || [ "$install_committed" -eq 1 ]; then
-    if [ -n "$backup_bin" ]; then
-      remove_owned_install_file "$backup_bin"
-    fi
-    if [ -n "$staged_tmp" ]; then
-      remove_owned_install_file "$staged_tmp"
-    fi
-    if [ "$lock_owned" -eq 1 ]; then
-      for name in release-public-key.pem owner owner.next transaction transaction.next updater updater.next; do
-        remove_owned_install_file "$install_lock/$name"
-      done
-      if ! rmdir "$install_lock" || ! install_sync "$dest_dir"; then
-        printf '%s\n' "codex install: install lock cleanup failed: $install_lock" >&2
-        result=1
-      fi
+    remove_owned_install_file "$backup_bin"
+    remove_owned_install_file "$staged_tmp"
+    if [ "$lock_owned" -eq 1 ] && ! clear_install_lock; then
+      printf '%s\n' "codex install: install lock cleanup failed: $install_lock" >&2
+      result=1
     fi
   fi
   if [ "$recovery_gate_owned" -eq 1 ]; then
@@ -1055,31 +1013,25 @@ ensure_component_verify_key() {
   component_verify_key_path=$c_key
 }
 
+publish_generation_link() (
+  l_path=$1 l_target=$2
+  l_tmp="$(dirname -- "$l_path")/.$(basename -- "$l_path").tmp.$$"
+  rm -f "$l_tmp"
+  ln -s "$l_target" "$l_tmp"
+  # -T is supported by Termux coreutils; never unlink the active link first.
+  mv -Tf "$l_tmp" "$l_path" || { rm -f "$l_tmp"; fail "cannot publish $l_path"; }
+  install_sync "$(dirname -- "$l_path")"
+)
+
 update_generation_links() {
-  u_root=$1
-  u_gen=$2
+  u_root=$1 u_gen=$2
   mkdir -p "$u_root/generations"
   chmod 0700 "$u_root" "$u_root/generations"
-  u_prev=''
-  if [ -L "$u_root/current" ]; then
-    u_prev=$(readlink "$u_root/current" 2>/dev/null || :)
-  fi
+  u_prev=$(readlink "$u_root/current" 2>/dev/null || :)
   if [ -n "$u_prev" ] && [ "$u_prev" != "generations/$u_gen" ]; then
-    u_prev_tmp="$u_root/.previous.tmp.$$"
-    rm -f "$u_prev_tmp"
-    ln -s "$u_prev" "$u_prev_tmp"
-    mv -Tf "$u_prev_tmp" "$u_root/previous" 2>/dev/null || {
-      rm -f "$u_prev_tmp"
-      ln -sfn "$u_prev" "$u_root/previous"
-    }
+    publish_generation_link "$u_root/previous" "$u_prev"
   fi
-  u_cur_tmp="$u_root/.current.tmp.$$"
-  rm -f "$u_cur_tmp"
-  ln -s "generations/$u_gen" "$u_cur_tmp"
-  mv -Tf "$u_cur_tmp" "$u_root/current" 2>/dev/null || {
-    rm -f "$u_cur_tmp"
-    ln -sfn "generations/$u_gen" "$u_root/current"
-  }
+  publish_generation_link "$u_root/current" "generations/$u_gen"
 }
 
 find_runit_service_script() {
@@ -1099,32 +1051,16 @@ find_runit_service_script() {
 }
 
 component_specs() {
-  case $1 in
-    codex-ext)
-      printf '%s:%s:%s:%s\n' 'ext' 'codex-ext' 'codex-ext-aarch64-linux-android.tar.gz' '0.1.0'
-      ;;
-    tunnel-client)
-      printf '%s:%s:%s:%s\n' 'transport/tunnel-client' 'tunnel-client' 'tunnel-client-aarch64-linux-android.tar.gz' 'v0.0.21'
-      ;;
-    termux-shell-mcp)
-      printf '%s:%s:%s:%s\n' 'mcp/termux-shell' 'termux-shell-mcp' 'termux-shell-mcp-aarch64-linux-android.tar.gz' '0.1.0'
-      ;;
-    termux-codex-mcp)
-      printf '%s:%s:%s:%s\n' 'mcp/termux-codex' 'termux-codex-mcp' 'termux-codex-mcp-aarch64-linux-android.tar.gz' '0.1.0'
-      ;;
-    chatgpt-provider)
-      printf '%s:%s:%s:%s\n' 'providers/chatgpt' 'chatgpt-provider' 'chatgpt-provider-aarch64-linux-android.tar.gz' '0.1.0'
-      ;;
-    termux-chatgpt-mcp)
-      printf '%s:%s:%s:%s\n' 'mcp/termux-chatgpt' 'termux-chatgpt-mcp' 'termux-chatgpt-mcp-aarch64-linux-android.tar.gz' '0.1.0'
-      ;;
-    termux-orch)
-      printf '%s:%s:%s:%s\n' 'mcp/termux-orch' 'termux-orch' 'termux-orch-aarch64-linux-android.tar.gz' '0.1.0'
-      ;;
-    *)
-      fail "unsupported component: $1"
-      ;;
+  c_tag=$1 c_version=0.1.0
+  case $c_tag in
+    codex-ext) c_path=ext ;;
+    tunnel-client) c_path=transport/tunnel-client; c_version=v0.0.21 ;;
+    termux-shell-mcp|termux-codex-mcp|termux-chatgpt-mcp) c_path="mcp/${c_tag%-mcp}" ;;
+    chatgpt-provider) c_path=providers/chatgpt ;;
+    termux-orch) c_path=mcp/termux-orch ;;
+    *) fail "unsupported component: $c_tag" ;;
   esac
+  printf '%s:%s:%s:%s\n' "$c_path" "$c_tag" "$c_tag-aarch64-linux-android.tar.gz" "$c_version"
 }
 
 tunnel_client_updated=0
@@ -1136,9 +1072,7 @@ install_atomic_prefix_binary() {
   rm -f "$i_tmp"
   cp "$i_src" "$i_tmp"
   chmod 0755 "$i_tmp"
-  install_sync "$i_tmp"
-  mv -f "$i_tmp" "$dest_dir/$i_name"
-  install_sync "$dest_dir"
+  publish_install_file "$i_tmp" "$dest_dir/$i_name"
 }
 
 run_runit_service_action() {
@@ -1175,14 +1109,11 @@ service_matches_target() {
   m_runner_comp=${7:-}
   m_runner_bin=${8:-}
   [ -d "$prefix/var/service/$m_svc" ] || return 1
+  set -- --component "$m_comp" --binary "$m_bin" --service "$m_svc"
   if [ -n "$m_runner_comp" ]; then
-    m_out=$("$m_py" "$m_script" --home "$HOME" --prefix "$prefix" \
-      --component "$m_comp" --binary "$m_bin" --service "$m_svc" \
-      --runner-component "$m_runner_comp" --runner-binary "$m_runner_bin" status 2>/dev/null) || return 1
-  else
-    m_out=$("$m_py" "$m_script" --home "$HOME" --prefix "$prefix" \
-      --component "$m_comp" --binary "$m_bin" --service "$m_svc" status 2>/dev/null) || return 1
+    set -- "$@" --runner-component "$m_runner_comp" --runner-binary "$m_runner_bin"
   fi
+  m_out=$("$m_py" "$m_script" --home "$HOME" --prefix "$prefix" "$@" status 2>/dev/null) || return 1
   printf '%s\n' "$m_out" | "$m_py" -c '
 import json, sys
 target = sys.argv[1]
@@ -1218,17 +1149,29 @@ ensure_chatgpt_profile_config() {
   fi
 }
 
-activate_component_service() {
-  ac_tag=$1
-  ac_comp=$2
-  ac_bin=$3
-  ac_root=$4
-  ac_gen=$5
-  if [ "$no_services" -eq 1 ]; then
+# Helpers inherit the component plan from activate_component_service, and use
+# the same supervisor command for enrollment and activation (including Orch).
+component_action() {
+  ca_service=$1; shift
+  run_runit_service_action "$ac_py" "$ac_script" --component "$ac_comp" \
+    --binary "$ac_bin" --service "$ca_service" "$@" >/dev/null
+}
+
+component_matches() {
+  service_matches_target "$ac_py" "$ac_script" "$ac_comp" "$ac_bin" "$1" "$ac_gen" "${2:-}" "${3:-}"
+}
+
+enroll_direct_service() {
+  ed_service=$1; shift
+  if [ ! -d "$prefix/var/service/$ed_service" ]; then
     update_generation_links "$ac_root" "$ac_gen"
-    return 0
+    component_action "$ed_service" enroll "$@"
   fi
-  if [ ! -x /system/bin/linker64 ]; then
+}
+
+activate_component_service() {
+  ac_tag=$1 ac_comp=$2 ac_bin=$3 ac_root=$4 ac_gen=$5
+  if [ "$no_services" -eq 1 ] || [ ! -x /system/bin/linker64 ] || [ "$ac_tag" = tunnel-client ]; then
     update_generation_links "$ac_root" "$ac_gen"
     return 0
   fi
@@ -1237,93 +1180,68 @@ activate_component_service() {
   ac_script=$(find_runit_service_script || :)
   if [ -z "$ac_py" ] || [ -z "$ac_sv" ] || [ -z "$ac_script" ]; then
     update_generation_links "$ac_root" "$ac_gen"
-    if [ "$ac_tag" != 'tunnel-client' ]; then
-      note "staged $ac_tag ($ac_gen); install python and termux-services to supervise runit service"
-    fi
+    note "staged $ac_tag ($ac_gen); install python and termux-services to supervise runit service"
     return 0
   fi
 
   case $ac_tag in
-    tunnel-client)
-      update_generation_links "$ac_root" "$ac_gen"
-      return 0
-      ;;
     chatgpt-provider)
-      if [ ! -d "$prefix/var/service/chatgpt-provider" ]; then
-        update_generation_links "$ac_root" "$ac_gen"
-        run_runit_service_action "$ac_py" "$ac_script" \
-          --component "$ac_comp" --binary "$ac_bin" --service chatgpt-provider \
-          enroll --arg serve >/dev/null
+      enroll_direct_service chatgpt-provider --arg serve
+      if ! component_matches chatgpt-provider; then
+        component_action chatgpt-provider activate "$ac_gen" --readiness-cmd 'curl -fsS http://127.0.0.1:4319/healthz'
       fi
-      if ! service_matches_target "$ac_py" "$ac_script" "$ac_comp" "$ac_bin" chatgpt-provider "$ac_gen"; then
-        run_runit_service_action "$ac_py" "$ac_script" \
-          --component "$ac_comp" --binary "$ac_bin" --service chatgpt-provider \
-          activate "$ac_gen" --readiness-cmd 'curl -fsS http://127.0.0.1:4319/healthz' >/dev/null
-      fi
-      return 0
-      ;;
-    termux-shell-mcp|termux-codex-mcp|termux-chatgpt-mcp)
-      ac_short=${ac_tag%-mcp}
-      ac_yaml="$HOME/.config/codex/tunnels/${ac_short}.yaml"
-      ac_svc="${ac_short}-tunnel"
-      if [ -f "$ac_yaml" ]; then
-        if [ ! -d "$prefix/var/service/$ac_svc" ]; then
-          update_generation_links "$ac_root" "$ac_gen"
-          run_runit_service_action "$ac_py" "$ac_script" \
-            --component "$ac_comp" --binary "$ac_bin" --service "$ac_svc" \
-            --runner-component transport/tunnel-client --runner-binary tunnel-client \
-            enroll --arg run --arg --config --arg "$ac_yaml" --arg --mcp.stdio-send-initialized-notification >/dev/null
-        fi
-        if [ "$tunnel_client_updated" -eq 1 ] || \
-           ! service_matches_target "$ac_py" "$ac_script" "$ac_comp" "$ac_bin" "$ac_svc" "$ac_gen" transport/tunnel-client tunnel-client; then
-          run_runit_service_action "$ac_py" "$ac_script" \
-            --component "$ac_comp" --binary "$ac_bin" --service "$ac_svc" \
-            --runner-component transport/tunnel-client --runner-binary tunnel-client \
-            activate "$ac_gen" >/dev/null
-        fi
-      else
-        update_generation_links "$ac_root" "$ac_gen"
-        note "staged $ac_tag ($ac_gen); tunnel config missing ($ac_yaml)"
-      fi
-      return 0
-      ;;
+      return 0 ;;
     termux-orch)
-      ac_yaml="$HOME/.config/codex/tunnels/termux-orch.yaml"
       ac_relay_health="$HOME/.local/state/codex/services/termux-orch-relay/health.url"
-      if [ ! -d "$prefix/var/service/termux-orch-relay" ]; then
-        update_generation_links "$ac_root" "$ac_gen"
-        run_runit_service_action "$ac_py" "$ac_script" \
-          --component "$ac_comp" --binary "$ac_bin" --service termux-orch-relay \
-          enroll --arg relay --arg --bind --arg 127.0.0.1:0 \
-          --arg --health-url-file --arg "$ac_relay_health" --arg --poll-ms --arg 2000 >/dev/null
-      fi
-      if [ -f "$ac_yaml" ]; then
-        if [ ! -d "$prefix/var/service/termux-orch-tunnel" ]; then
-          run_runit_service_action "$ac_py" "$ac_script" \
-            --component "$ac_comp" --binary "$ac_bin" --service termux-orch-tunnel \
-            --runner-component transport/tunnel-client --runner-binary tunnel-client \
-            enroll --arg run --arg --config --arg "$ac_yaml" --arg --mcp.stdio-send-initialized-notification >/dev/null
-        fi
-        if [ "$tunnel_client_updated" -eq 1 ] || \
-           ! service_matches_target "$ac_py" "$ac_script" "$ac_comp" "$ac_bin" termux-orch-tunnel "$ac_gen" transport/tunnel-client tunnel-client || \
-           ! service_matches_target "$ac_py" "$ac_script" "$ac_comp" "$ac_bin" termux-orch-relay "$ac_gen"; then
-          run_runit_service_action "$ac_py" "$ac_script" \
-            --component "$ac_comp" --binary "$ac_bin" --service termux-orch-tunnel \
-            --runner-component transport/tunnel-client --runner-binary tunnel-client \
-            --companion-service termux-orch-relay \
-            activate "$ac_gen" >/dev/null
-        fi
-      else
-        if ! service_matches_target "$ac_py" "$ac_script" "$ac_comp" "$ac_bin" termux-orch-relay "$ac_gen"; then
-          run_runit_service_action "$ac_py" "$ac_script" \
-            --component "$ac_comp" --binary "$ac_bin" --service termux-orch-relay \
-            activate "$ac_gen" >/dev/null
-        fi
-        note "staged termux-orch-tunnel ($ac_gen); tunnel config missing ($ac_yaml)"
-      fi
-      return 0
-      ;;
+      enroll_direct_service termux-orch-relay --arg relay --arg --bind --arg 127.0.0.1:0 \
+        --arg --health-url-file --arg "$ac_relay_health" --arg --poll-ms --arg 2000 ;;
+    termux-shell-mcp|termux-codex-mcp|termux-chatgpt-mcp) ;;
+    *) fail "unsupported service component: $ac_tag" ;;
   esac
+  ac_short=${ac_tag%-mcp}
+  ac_yaml="$HOME/.config/codex/tunnels/$ac_short.yaml"
+  ac_svc="$ac_short-tunnel"
+  if [ ! -f "$ac_yaml" ]; then
+    if [ "$ac_tag" = termux-orch ]; then
+      if ! component_matches termux-orch-relay; then
+        component_action termux-orch-relay activate "$ac_gen"
+      fi
+    else
+      update_generation_links "$ac_root" "$ac_gen"
+    fi
+    note "staged $ac_tag ($ac_gen); tunnel config missing ($ac_yaml)"
+    return 0
+  fi
+  set -- --runner-component transport/tunnel-client --runner-binary tunnel-client
+  if [ ! -d "$prefix/var/service/$ac_svc" ]; then
+    if [ "$ac_tag" != termux-orch ]; then
+      update_generation_links "$ac_root" "$ac_gen"
+    fi
+    component_action "$ac_svc" "$@" enroll --arg run --arg --config --arg "$ac_yaml" \
+      --arg --mcp.stdio-send-initialized-notification
+  fi
+  if [ "$ac_tag" = termux-orch ]; then
+    set -- "$@" --companion-service termux-orch-relay
+  fi
+  if [ "$tunnel_client_updated" -eq 1 ] ||
+     ! component_matches "$ac_svc" transport/tunnel-client tunnel-client ||
+     { [ "$ac_tag" = termux-orch ] && ! component_matches termux-orch-relay; }; then
+    component_action "$ac_svc" "$@" activate "$ac_gen"
+  fi
+}
+
+unpack_release_archive() (
+  archive=$1 target=$2 tar_cmd=$3
+  listing=$("$tar_cmd" -tzf "$archive") || fail "cannot list archive $archive"
+  if printf '%s\n' "$listing" | grep -E '(^/|(^|/)\.\.(/|$))' >/dev/null 2>&1; then
+    fail 'release tarball contains unsafe path entries'
+  fi
+  mkdir -p "$target"
+  "$tar_cmd" -xzf "$archive" -C "$target"
+)
+
+matches_regular_file() {
+  [ -f "$1" ] && [ ! -L "$1" ] && cmp -s "$1" "$2"
 }
 
 install_signed_component() {
@@ -1371,10 +1289,7 @@ install_signed_component() {
     verify_sha256_file "$ic_tb" "$ic_tb_sha" "$ic_asset"
   fi
 
-  if "$ic_tar" -tzf "$ic_tb" | grep -E '(^/|(^|/)\.\.(/|$))' >/dev/null 2>&1; then
-    fail "$ic_tag tarball contains unsafe path entries"
-  fi
-  "$ic_tar" -xzf "$ic_tb" -C "$ic_work/extract"
+  unpack_release_archive "$ic_tb" "$ic_work/extract" "$ic_tar"
   require_regular_file "$ic_work/extract/bin/$ic_bin" "$ic_tag bin/$ic_bin"
   require_regular_file "$ic_work/extract/SHA256SUMS" "$ic_tag bundle checksums"
   verify_bundle_checksums "$ic_work/extract" "$ic_work/extract/SHA256SUMS"
@@ -1410,17 +1325,12 @@ install_signed_component() {
       fail "generation path is not a real directory: $ic_gen_dir"
     fi
     if ! { [ -d "$ic_gen_dir/signed" ] && [ ! -L "$ic_gen_dir/signed" ] &&
-      [ -f "$ic_gen_dir/bin/$ic_bin" ] && [ ! -L "$ic_gen_dir/bin/$ic_bin" ] &&
-      [ "$(sha256_hex "$ic_gen_dir/bin/$ic_bin")" = "$ic_new_bin_sha" ] &&
-      [ -f "$ic_gen_dir/$ic_bin" ] && [ ! -L "$ic_gen_dir/$ic_bin" ] &&
+      matches_regular_file "$ic_gen_dir/bin/$ic_bin" "$ic_work/extract/bin/$ic_bin" &&
       [ -x "$ic_gen_dir/$ic_bin" ] &&
-      [ "$(sha256_hex "$ic_gen_dir/$ic_bin")" = "$ic_new_bin_sha" ] &&
-      [ -f "$ic_gen_dir/SHA256SUMS" ] && [ ! -L "$ic_gen_dir/SHA256SUMS" ] &&
-      cmp -s "$ic_gen_dir/SHA256SUMS" "$ic_work/extract/SHA256SUMS" &&
-      [ -f "$ic_gen_dir/signed/SHA256SUMS" ] && [ ! -L "$ic_gen_dir/signed/SHA256SUMS" ] &&
-      cmp -s "$ic_gen_dir/signed/SHA256SUMS" "$ic_sums" &&
-      [ -f "$ic_gen_dir/signed/SHA256SUMS.sig" ] && [ ! -L "$ic_gen_dir/signed/SHA256SUMS.sig" ] &&
-      cmp -s "$ic_gen_dir/signed/SHA256SUMS.sig" "$ic_sig"; }; then
+      matches_regular_file "$ic_gen_dir/$ic_bin" "$ic_work/extract/bin/$ic_bin" &&
+      matches_regular_file "$ic_gen_dir/SHA256SUMS" "$ic_work/extract/SHA256SUMS" &&
+      matches_regular_file "$ic_gen_dir/signed/SHA256SUMS" "$ic_sums" &&
+      matches_regular_file "$ic_gen_dir/signed/SHA256SUMS.sig" "$ic_sig"; }; then
       fail "immutable generation identity conflict; refusing to replace $ic_gen_dir"
     fi
     verify_bundle_checksums "$ic_gen_dir" "$ic_work/extract/SHA256SUMS"
@@ -1480,12 +1390,7 @@ install_signed_component() {
 
   if [ "$ic_tag" = 'codex-ext' ]; then
     install_atomic_prefix_binary "$ic_gen_dir/bin/codex-ext" codex-ext
-    rm -f "$dest_dir/.cdx.tmp.$$"
-    ln -s codex-ext "$dest_dir/.cdx.tmp.$$"
-    mv -Tf "$dest_dir/.cdx.tmp.$$" "$dest_dir/cdx" 2>/dev/null || {
-      rm -f "$dest_dir/.cdx.tmp.$$"
-      ln -sfn codex-ext "$dest_dir/cdx"
-    }
+    publish_generation_link "$dest_dir/cdx" codex-ext
     update_generation_links "$ic_root" "$ic_gen"
   else
     activate_component_service "$ic_tag" "$ic_comp" "$ic_bin" "$ic_root" "$ic_gen"
@@ -1499,9 +1404,7 @@ install_signed_component() {
   ic_seq_tmp="$ic_seq_dir/.${ic_tag}.sequence.tmp.$$"
   printf '%s\n' "$ic_seq" > "$ic_seq_tmp"
   chmod 0600 "$ic_seq_tmp"
-  install_sync "$ic_seq_tmp"
-  mv -f "$ic_seq_tmp" "$ic_seq_file"
-  install_sync "$ic_seq_dir"
+  publish_install_file "$ic_seq_tmp" "$ic_seq_file"
   note "installed $ic_tag generation $ic_gen (sequence $ic_seq)"
 }
 
@@ -1536,44 +1439,23 @@ tty_prompt_secret() {
 }
 
 perform_codex_login() {
-  pl_method=$1
-  shift
+  pl_method=$1; shift
+  [ "$#" -ne 0 ] || set -- "$dest_bin"
   case $pl_method in
     device|1)
       note "starting Device Code login (follow URL and one-time code on screen)..."
-      if [ "$#" -gt 0 ]; then
-        "$@" login --device-auth
-      else
-        "$dest_bin" login --device-auth
-      fi
-      ;;
-    browser|2)
-      if [ "$#" -gt 0 ]; then
-        "$@" login
-      else
-        "$dest_bin" login
-      fi
-      ;;
+      "$@" login --device-auth ;;
+    browser|2) "$@" login ;;
     api-key|3)
-      if [ -n "${OPENAI_API_KEY:-}" ]; then
-        pl_key=$OPENAI_API_KEY
-      else
+      pl_key=${OPENAI_API_KEY:-}
+      if [ -z "$pl_key" ]; then
         pl_key=$(tty_prompt_secret 'OpenAI API key (input hidden, empty skips): ') || return 0
       fi
       [ -n "$pl_key" ] || { note 'skipped API key login'; return 0; }
-      if [ "$#" -gt 0 ]; then
-        printf '%s\n' "$pl_key" | "$@" login --with-api-key
-      else
-        printf '%s\n' "$pl_key" | "$dest_bin" login --with-api-key
-      fi
-      pl_key=''
-      ;;
-    skip|4|'')
-      return 0
-      ;;
-    *)
-      fail "unknown login method: $pl_method"
-      ;;
+      printf '%s\n' "$pl_key" | "$@" login --with-api-key
+      pl_key='' ;;
+    skip|4|'') return 0 ;;
+    *) fail "unknown login method: $pl_method" ;;
   esac
 }
 
@@ -1833,16 +1715,11 @@ if [ -z "$source_mode" ]; then
 fi
 
 case $source_mode in
-  bundle)
+  bundle|bundle_root)
+    bundle_entry=${binary_path#"$script_dir/"}
     if [ -f "$script_dir/SHA256SUMS" ]; then
-      verify_sha256_file "$binary_path" "$script_dir/SHA256SUMS" 'bin/codex'
-      note 'verified bundled bin/codex against SHA256SUMS'
-    fi
-    ;;
-  bundle_root)
-    if [ -f "$script_dir/SHA256SUMS" ]; then
-      verify_sha256_file "$binary_path" "$script_dir/SHA256SUMS" 'codex'
-      note 'verified bundled codex against SHA256SUMS'
+      verify_sha256_file "$binary_path" "$script_dir/SHA256SUMS" "$bundle_entry"
+      note "verified bundled $bundle_entry against SHA256SUMS"
     fi
     ;;
   binary)
@@ -1927,7 +1804,7 @@ case $source_mode in
         fi
       fi
       verify_ed25519_sig "$openssl_bin" "$active_key" "$sums_file" "$sig_file"
-      seq_val=$(verify_signed_sums_headers "$sums_file")
+      seq_val=$(verify_component_sums_headers "$sums_file" wrapper)
       prev_seq=$(read_recorded_release_sequence "$HOME/.local/share/codex/wrapper/release-sequence")
       if [ "$seq_val" -lt "$prev_seq" ]; then
         fail "release sequence rollback rejected (got $seq_val, installed $prev_seq)"
@@ -1948,12 +1825,8 @@ case $source_mode in
       note 'verified release archive SHA-256'
     fi
 
-    if "$tar_bin" -tzf "$tarball" | grep -E '(^/|(^|/)\.\.(/|$))' >/dev/null 2>&1; then
-      fail 'release tarball contains unsafe path entries'
-    fi
     extract_dir="$work/extract"
-    mkdir -p "$extract_dir"
-    "$tar_bin" -xzf "$tarball" -C "$extract_dir"
+    unpack_release_archive "$tarball" "$extract_dir" "$tar_bin"
     binary_path="$extract_dir/bin/codex"
     require_regular_file "$binary_path" 'release archive bin/codex'
     if [ -f "$extract_dir/SHA256SUMS" ]; then
@@ -2059,16 +1932,8 @@ write_install_phase swapped
 note "installed codex wrapper to $dest_bin"
 
 if [ "$skip_upstream" -eq 1 ]; then
-  if [ -n "$verified_release_sequence" ]; then
-    persist_signed_release_state
-  fi
   note "skipped upstream bootstrap (--skip-upstream); run '$dest_bin update --upstream' when ready"
-  commit_wrapper_transaction
-  maybe_run_components_and_setup
-  exit 0
-fi
-
-if [ -x /system/bin/linker64 ]; then
+elif [ -x /system/bin/linker64 ]; then
   needs_update=1
   if qualified_active_generation; then
     note 'retaining the qualified active upstream generation'
@@ -2083,12 +1948,10 @@ if [ -x /system/bin/linker64 ]; then
       fail 'activation changed before updater admission'
     write_install_phase updating
     update_group=0
+    set -- "$dest_bin" update --upstream
+    [ -z "$upstream_version" ] || set -- "$@" --version "$upstream_version"
     if command -v setsid >/dev/null 2>&1; then
-      if [ -n "$upstream_version" ]; then
-        setsid "$dest_bin" update --upstream --version "$upstream_version" &
-      else
-        setsid "$dest_bin" update --upstream &
-      fi
+      setsid "$@" &
       updater_pid=$!
       observed_group=0
       retries=0
@@ -2100,19 +1963,13 @@ if [ -x /system/bin/linker64 ]; then
       done
       if [ "$observed_group" = "$updater_pid" ]; then update_group=$updater_pid; fi
     else
-      if [ -n "$upstream_version" ]; then
-        "$dest_bin" update --upstream --version "$upstream_version" &
-      else
-        "$dest_bin" update --upstream &
-      fi
+      "$@" &
       updater_pid=$!
     fi
     updater_start=$(proc_start_ticks "$updater_pid" || :)
     if [ -z "$updater_start" ]; then updater_start=0; fi
     printf 'pid=%s\nstart=%s\npgid=%s\n' "$updater_pid" "$updater_start" "$update_group" > "$install_lock/updater.next"
-    install_sync "$install_lock/updater.next"
-    mv -f "$install_lock/updater.next" "$install_lock/updater"
-    install_sync "$install_lock"
+    publish_install_file "$install_lock/updater.next" "$install_lock/updater"
     if wait "$updater_pid"; then
       write_install_phase updated
     else
@@ -2129,8 +1986,6 @@ if [ -x /system/bin/linker64 ]; then
 else
   note "non-Android host detected; skipping on-device upstream bootstrap"
 fi
-if [ -n "$verified_release_sequence" ]; then
-  persist_signed_release_state
-fi
+persist_signed_release_state
 commit_wrapper_transaction
 maybe_run_components_and_setup

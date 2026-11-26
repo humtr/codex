@@ -29,7 +29,7 @@ Invariants:
   restores the old generation after stopping the attempted services.
 """
 import argparse
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 import fcntl
 import hashlib
 import http.client
@@ -94,9 +94,13 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def regular_file(path: Path) -> bool:
+    return not path.is_symlink() and path.is_file()
+
+
 def read_checksums(path: Path) -> dict[str, str]:
     """Parse unique SHA-256 entries in release and extracted bundle manifests."""
-    if path.is_symlink() or not path.is_file():
+    if not regular_file(path):
         raise ValueError("checksum manifest is not a regular file")
     entries = {}
     for line in path.read_text(encoding="ascii").splitlines():
@@ -145,14 +149,10 @@ def atomic_write_private(path: Path, body: str, mode: int = 0o600) -> None:
         os.replace(tmp, path)
     except BaseException:
         if fd >= 0:
-            try:
+            with suppress(OSError):
                 os.close(fd)
-            except OSError:
-                pass
-        try:
+        with suppress(OSError):
             tmp.unlink()
-        except OSError:
-            pass
         raise
     fsync_dir(parent)
 
@@ -165,10 +165,8 @@ def atomic_symlink(link_path: Path, target: str) -> None:
     try:
         os.replace(tmp, link_path)
     except BaseException:
-        try:
+        with suppress(OSError):
             tmp.unlink()
-        except OSError:
-            pass
         raise
     fsync_dir(parent)
 
@@ -230,17 +228,25 @@ def normalize_command(cmd: list[str] | str | None) -> list[str] | None:
         return None
     if isinstance(cmd, str):
         tokens = shlex.split(cmd)
-        if not tokens:
-            raise SupervisionError("command must not be empty")
-        return tokens
-    if len(cmd) == 1 and any(ch.isspace() for ch in cmd[0]):
+    elif len(cmd) == 1 and any(ch.isspace() for ch in cmd[0]):
         tokens = shlex.split(cmd[0])
-        if not tokens:
-            raise SupervisionError("command must not be empty")
-        return tokens
-    if not cmd:
+    else:
+        tokens = list(cmd)
+    if not tokens:
         raise SupervisionError("command must not be empty")
-    return list(cmd)
+    return tokens
+
+
+def command_failure(cmd: list[str], label: str, fallback: str | None = None) -> str | None:
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+    except subprocess.TimeoutExpired:
+        return f"{label} timed out"
+    except OSError as err:
+        return str(err)
+    if result.returncode != 0:
+        return (result.stderr or result.stdout).strip()[:200] or fallback or f"exit {result.returncode}"
+    return None
 
 
 def preprocess_cli_argv(argv: list[str]) -> list[str]:
@@ -394,28 +400,18 @@ class ServiceSupervisor:
         self, *, version: str | None, previous: str | None,
         generations_dir: Path, binary_name: str, component: str,
     ) -> dict:
-        ver, prev = version, previous
-        if ver is None:
-            return {
-                "version": None,
-                "previous_version": prev,
-                "binary_path": None,
-                "binary_sha256": None,
-                "valid": False,
-            }
-        generation_dir = generations_dir / ver
-        bin_path = generation_dir / binary_name
+        generation_dir = generations_dir / version if version is not None else None
+        bin_path = generation_dir / binary_name if generation_dir is not None else None
+        info = {
+            "version": version, "previous_version": previous,
+            "binary_path": str(bin_path) if bin_path is not None else None,
+            "binary_sha256": None, "valid": False,
+        }
         release_component = RELEASE_COMPONENTS.get(component, binary_name)
-        if (binary_name != release_component or generations_dir.is_symlink() or
-                generation_dir.is_symlink() or bin_path.is_symlink() or
-                not bin_path.is_file() or not os.access(bin_path, os.X_OK)):
-            return {
-                "version": ver,
-                "previous_version": prev,
-                "binary_path": str(bin_path),
-                "binary_sha256": None,
-                "valid": False,
-            }
+        if (bin_path is None or binary_name != release_component or generations_dir.is_symlink()
+                or generation_dir.is_symlink() or not regular_file(bin_path)
+                or not os.access(bin_path, os.X_OK)):
+            return info
         # Release signatures cover archive digests; older/direct manifests may
         # instead cover the binary itself. install.sh admits the signed archive
         # before extraction and keeps its release manifest, not the archive.
@@ -425,12 +421,11 @@ class ServiceSupervisor:
         key_path = signed_dir / "release-public-key.pem"
         try:
             if (generation_dir.is_symlink() or signed_dir.is_symlink() or
-                    not sums_path.is_file() or sums_path.is_symlink() or
-                    not sig_path.is_file() or sig_path.is_symlink() or
+                    not regular_file(sums_path) or not regular_file(sig_path) or
                     sig_path.stat().st_size != 64):
                 raise ValueError("missing or invalid release signature")
             trusted_key = self.home / ".local/lib/codex/wrapper/release-public-key.pem"
-            if not trusted_key.is_file() or trusted_key.is_symlink():
+            if not regular_file(trusted_key):
                 raise ValueError("missing installed trusted key")
             # Retired verifiers are retained by the installer before rotation.
             # A generation's own key is never a trust root. Legacy generations
@@ -441,11 +436,11 @@ class ServiceSupervisor:
                 candidates.extend(
                     key for key in sorted(retired_dir.glob("*.pem"))
                     if re.fullmatch(r"[0-9a-f]{64}", key.stem)
-                    and key.is_file() and not key.is_symlink()
+                    and regular_file(key)
                     and sha256_file(key) == key.stem
                 )
             if key_path.exists() or key_path.is_symlink():
-                if not key_path.is_file() or key_path.is_symlink():
+                if not regular_file(key_path):
                     raise ValueError("invalid generation public key")
                 supplied_key = key_path.read_bytes()
                 candidates = [key for key in candidates if key.read_bytes() == supplied_key]
@@ -487,24 +482,16 @@ class ServiceSupervisor:
                 expected = read_checksums(generation_dir / "SHA256SUMS").get(entry)
                 packaged_bin = generation_dir / entry
                 if (expected is None or packaged_bin.parent.is_symlink() or
-                        packaged_bin.is_symlink() or not packaged_bin.is_file() or
+                        not regular_file(packaged_bin) or
                         sha256_file(packaged_bin) != expected):
                     raise ValueError("extracted bundle checksum mismatch")
             actual = sha256_file(bin_path)
             if actual != expected:
                 raise ValueError("binary checksum mismatch")
         except (OSError, UnicodeError, ValueError, subprocess.TimeoutExpired):
-            return {
-                "version": ver, "previous_version": prev, "binary_path": str(bin_path),
-                "binary_sha256": None, "valid": False,
-            }
-        return {
-            "version": ver,
-            "previous_version": prev,
-            "binary_path": str(bin_path.resolve()),
-            "binary_sha256": actual,
-            "valid": True,
-        }
+            return info
+        info.update(binary_path=str(bin_path.resolve()), binary_sha256=actual, valid=True)
+        return info
 
     def selected_generation(self) -> dict:
         return self._selected_from_links(
@@ -562,8 +549,7 @@ class ServiceSupervisor:
         )
 
     def is_enrolled(self) -> bool:
-        run_script = self.service_dir / "run"
-        return run_script.is_file() and not run_script.is_symlink()
+        return regular_file(self.service_dir / "run")
 
     def _inspect_running(self) -> dict:
         if not self.is_enrolled():
@@ -668,7 +654,9 @@ class ServiceSupervisor:
 
     def status(self, *, readiness_cmd: list[str] | str | None = None) -> dict:
         norm_readiness = normalize_command(readiness_cmd)
-        selected = self.selected_generation()
+        return self._status(self.selected_generation(), norm_readiness)
+
+    def _status(self, selected: dict, norm_readiness: list[str] | None) -> dict:
         runner_selected = self.selected_runner_generation()
         running = self._inspect_running()
         running_deleted = bool(running.get("exe") and str(running["exe"]).endswith(" (deleted)"))
@@ -697,20 +685,12 @@ class ServiceSupervisor:
             running_ver = self._version_from_exe(running.get("exe"))
             runner_comp_matches = True
 
-        readiness_ok = True
         readiness_error = None
         if norm_readiness and running.get("state") == "running":
-            try:
-                r = subprocess.run(norm_readiness, capture_output=True, text=True, timeout=10)
-                if r.returncode != 0:
-                    readiness_ok = False
-                    readiness_error = (r.stderr or r.stdout).strip()[:200] or f"exit {r.returncode}"
-            except subprocess.TimeoutExpired:
-                readiness_ok = False
-                readiness_error = "readiness command timed out"
-            except OSError as err:
-                readiness_ok = False
-                readiness_error = str(err)[:200]
+            readiness_error = command_failure(norm_readiness, "readiness command")
+        readiness_ok = readiness_error is None
+        if readiness_error is not None:
+            readiness_error = readiness_error[:200]
 
         expected_exe = (
             runner_selected["binary_path"]
@@ -755,15 +735,15 @@ class ServiceSupervisor:
             out["selected_runner_generation"] = runner_selected
             out["running_generation"]["runner_version"] = running_runner_ver
         if self.companion_services:
-            comp_statuses = [c.status() for c in self._companions()]
+            # All companions share this component selection, not its process state.
+            comp_statuses = [c._status(selected.copy(), None) for c in self._companions()]
             out["companions"] = comp_statuses
             if activation_state == "active":
-                for cst in comp_statuses:
-                    cstate = cst["activation_state"]
-                    if cstate in ("pending_activation", "stopped", "error"):
-                        activation_state = cstate
-                        out["activation_state"] = cstate
-                        break
+                out["activation_state"] = next(
+                    (c["activation_state"] for c in comp_statuses
+                     if c["activation_state"] in ("pending_activation", "stopped", "error")),
+                    activation_state,
+                )
         return out
 
     def enroll(self, *, exec_args: list[str], extra_env: dict[str, str] | None = None) -> dict:
@@ -820,14 +800,10 @@ class ServiceSupervisor:
         path = self.comp_root / ".activation.lock"
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600)
         try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as err:
-            os.close(fd)
-            raise SupervisionError(f"another activation is running for '{self.component}'") from err
-        except BaseException:
-            os.close(fd)
-            raise
-        try:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as err:
+                raise SupervisionError(f"another activation is running for '{self.component}'") from err
             yield
         finally:
             os.close(fd)
@@ -846,7 +822,6 @@ class ServiceSupervisor:
 
     def _activate(self, version: str, busy: list[str] | None,
                   readiness: list[str] | None, timeout: float) -> dict:
-        validate_token(version, VER_RE, "version")
         candidate = self._component_generation(version)
         if not candidate["valid"]:
             raise SupervisionError(f"generation missing or invalid: {candidate['binary_path']}")
@@ -902,27 +877,17 @@ class ServiceSupervisor:
             service.has_runner and info["exe"] != expected_primary
             for service, info in running
         )
-        if running and (selection_changed or runner_changed) and busy is None:
+        reason = None
+        if running:
+            if busy is not None:
+                reason = command_failure(busy, "busy check", "busy")
+            elif selection_changed or runner_changed:
+                reason = "busy check required for a running service"
+        if reason is not None:
+            # A rejected/unknown busy check never publishes the candidate.
             status = self.status(readiness_cmd=readiness)
-            status["activation_state"] = "pending_activation"
-            status["deferred_reason"] = "busy check required for a running service"
+            status.update(activation_state="pending_activation", deferred_reason=reason)
             return status
-
-        if running and busy is not None:
-            try:
-                checked = subprocess.run(busy, capture_output=True, text=True, timeout=10)
-                reason = None if checked.returncode == 0 else (checked.stderr or checked.stdout).strip()[:200] or "busy"
-            except subprocess.TimeoutExpired:
-                reason = "busy check timed out"
-            except OSError as err:
-                reason = str(err)
-            if reason is not None:
-                # A rejected/unknown busy check is a hard fence: never publish
-                # the candidate selection while an old process may still run.
-                status = self.status(readiness_cmd=readiness)
-                status["activation_state"] = "pending_activation"
-                status["deferred_reason"] = reason
-                return status
 
         if not running:
             if selection_changed:
@@ -949,47 +914,50 @@ class ServiceSupervisor:
         if prior is None or not self._component_generation(prior)["valid"]:
             raise SupervisionError("cannot restart without a verified rollback generation")
 
+        # Stop before publishing. A stop failure must not change either link.
         stopping = []
-        stopped = False
         try:
             for service, _ in running:
                 stopping.append(service)
                 service._stop_service(timeout=timeout)
-            stopped = True
+        except (SupervisionError, OSError) as err:
+            try:
+                for service in reversed(stopping):
+                    service._run_sv("up", timeout)
+            except (SupervisionError, OSError) as recovery:
+                raise SupervisionError(f"activation failed: {err}; recovery incomplete: {recovery}") from err
+            raise SupervisionError(f"activation stopped before changing selection: {err}") from err
+
+        try:
             if selection_changed:
                 self._select(version, current)
             self._start_group(running, target_exe, runner, readiness, timeout)
         except (SupervisionError, OSError) as err:
             try:
-                if stopped:
-                    failures = []
-                    for service, _ in running:
-                        try:
-                            service._stop_service(timeout=timeout, force=True)
-                        except (SupervisionError, OSError) as stop:
-                            failures.append(f"{service.service_name}: {stop}")
-                    if failures:
-                        raise SupervisionError("could not drain attempted generation: " + ", ".join(failures))
-                    if not self._component_generation(prior)["valid"]:
-                        raise SupervisionError("rollback generation is no longer valid")
-                    self._select(prior, prior_previous)
-                    self._start_group(running, str(self.generation_binary(prior).resolve()),
-                                      runner, readiness, timeout)
-                    if runner_changed:
-                        raise SupervisionError("shared runner selection changed; original runner not restored")
-                else:
-                    # No selection changed. Restart only the services whose
-                    # stop was requested; a failed stop may have killed one.
-                    for service in reversed(stopping):
-                        service._run_sv("up", timeout)
+                self._restore_group(running, prior, prior_previous, runner, readiness, timeout)
+                if runner_changed:
+                    raise SupervisionError("shared runner selection changed; original runner not restored")
             except (SupervisionError, OSError) as recovery:
                 raise SupervisionError(f"activation failed: {err}; recovery incomplete: {recovery}") from err
-            if stopped:
-                outcome = "rolled back" if prior != version else "original component restored"
-                raise SupervisionError(f"activation of '{version}' failed ({outcome}): {err}") from err
-            raise SupervisionError(f"activation stopped before changing selection: {err}") from err
+            outcome = "rolled back" if prior != version else "original component restored"
+            raise SupervisionError(f"activation of '{version}' failed ({outcome}): {err}") from err
 
         return self.status(readiness_cmd=readiness)
+
+    def _restore_group(self, running, prior, previous, runner, readiness, timeout) -> None:
+        failures = []
+        for service, _ in running:
+            try:
+                service._stop_service(timeout=timeout, force=True)
+            except (SupervisionError, OSError) as err:
+                failures.append(f"{service.service_name}: {err}")
+        if failures:
+            raise SupervisionError("could not drain attempted generation: " + ", ".join(failures))
+        restored = self._component_generation(prior)
+        if not restored["valid"]:
+            raise SupervisionError("rollback generation is no longer valid")
+        self._select(prior, previous)
+        self._start_group(running, restored["binary_path"], runner, readiness, timeout)
 
     def _select(self, current: str, previous: str | None) -> None:
         if previous is not None and previous != current:
@@ -1193,14 +1161,11 @@ def main(argv: list[str] | None = None) -> int:
 
     p_act = sub.add_parser("activate", help="select generation and safely rebind enrolled service")
     p_act.add_argument("version")
-    p_act.add_argument("--busy-check-cmd", default=None)
-    p_act.add_argument("--readiness-cmd", default=None)
-    p_act.add_argument("--timeout", type=float, default=15.0)
-
     p_rb = sub.add_parser("rollback", help="roll back to previous generation")
-    p_rb.add_argument("--busy-check-cmd", default=None)
-    p_rb.add_argument("--readiness-cmd", default=None)
-    p_rb.add_argument("--timeout", type=float, default=15.0)
+    for command in (p_act, p_rb):
+        command.add_argument("--busy-check-cmd", default=None)
+        command.add_argument("--readiness-cmd", default=None)
+        command.add_argument("--timeout", type=float, default=15.0)
 
     args = parser.parse_args(norm_argv)
     try:
@@ -1224,21 +1189,13 @@ def main(argv: list[str] | None = None) -> int:
                 k, v = item.split("=", 1)
                 env_map[k] = v
             res = sup.enroll(exec_args=args.arg, extra_env=env_map)
-        elif args.cmd == "activate":
-            res = sup.activate(
-                args.version,
-                busy_check_cmd=args.busy_check_cmd,
-                readiness_cmd=args.readiness_cmd,
-                restart_timeout=args.timeout,
-            )
-        elif args.cmd == "rollback":
-            res = sup.rollback(
-                busy_check_cmd=args.busy_check_cmd,
-                readiness_cmd=args.readiness_cmd,
-                restart_timeout=args.timeout,
-            )
         else:
-            raise SupervisionError(f"unknown command {args.cmd}")
+            operation = sup.activate if args.cmd == "activate" else sup.rollback
+            versions = [args.version] if args.cmd == "activate" else []
+            res = operation(
+                *versions, busy_check_cmd=args.busy_check_cmd,
+                readiness_cmd=args.readiness_cmd, restart_timeout=args.timeout,
+            )
         print(json.dumps(res, indent=2, sort_keys=True))
         return 0
     except (SupervisionError, OSError, ValueError) as err:
