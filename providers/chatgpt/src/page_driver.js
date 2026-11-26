@@ -316,16 +316,25 @@
               json = null;
             }
             const status = Number(respWire.status || 0);
-            return { ok: status >= 200 && status < 300, status, json, text: truncate(text, 4096) };
+            const retry_after = extractRetryAfter(respWire.headers);
+            return {
+              ok: status >= 200 && status < 300,
+              status,
+              json,
+              text: truncate(text, 4096),
+              ...(retry_after ? { retry_after } : {}),
+            };
           }
         }
         if (resVal && typeof resVal === "object" && resVal.responseType === "error") {
           const status = Number(resVal.responseStatus ?? resVal.status ?? 0);
+          const retry_after = extractRetryAfter(resVal);
           return {
             ok: false,
             status,
             json: null,
             text: truncate(String(resVal.error || resVal.errorCode || "fetch_error"), 1024),
+            ...(retry_after ? { retry_after } : {}),
           };
         }
         return {
@@ -401,6 +410,21 @@
     return Boolean(location && location.protocol === "app:");
   }
 
+  function extractRetryAfter(source) {
+    if (!source || typeof source !== "object") return null;
+    const raw =
+      (typeof source.get === "function" ? source.get("retry-after") || source.get("Retry-After") : null) ||
+      source["retry-after"] ||
+      source["Retry-After"] ||
+      source.retry_after ||
+      source.retryAfter ||
+      (source.headers ? extractRetryAfter(source.headers) : null) ||
+      (source.responseHeaders ? extractRetryAfter(source.responseHeaders) : null);
+    if (raw === null || raw === undefined) return null;
+    const s = String(raw).trim();
+    return s && s.length <= 64 ? s : null;
+  }
+
   async function apiFetch(path, options = {}, timeoutMs = 15000) {
     if (isElectronAppOrigin()) {
       return appHostClient.fetch(path, options, timeoutMs);
@@ -429,7 +453,14 @@
       } catch (_) {
         json = null;
       }
-      return { ok: resp.ok, status: resp.status, json, text: truncate(text, 4096) };
+      const retry_after = extractRetryAfter(resp.headers);
+      return {
+        ok: resp.ok,
+        status: resp.status,
+        json,
+        text: truncate(text, 4096),
+        ...(retry_after ? { retry_after } : {}),
+      };
     } catch (err) {
       return {
         ok: false,
@@ -1598,7 +1629,12 @@
             detail: "ChatGPT account login required",
           };
         }
-        return { state: "error", error: `backend_http_${me.status}`, detail: me.text };
+        return {
+          state: "error",
+          error: `backend_http_${me.status}`,
+          detail: me.text,
+          ...(me.retry_after ? { retry_after: me.retry_after } : {}),
+        };
       }
       const orgs = me.json.orgs && Array.isArray(me.json.orgs.data) ? me.json.orgs.data : [];
       const personalOrg = orgs.find((o) => o.is_personal) || orgs[0] || null;
@@ -2254,7 +2290,12 @@
           if (!turn.stopped) {
             const code = err?.errorCode || (err?.responseStatus ? `backend_http_${err.responseStatus}` : "completion_stream_error");
             const detail = err?.error || err?.message || String(err || "completion stream failed");
-            turn.error = { code: String(code), detail: truncate(String(detail), 512) };
+            const retry_after = extractRetryAfter(err);
+            turn.error = {
+              code: String(code),
+              detail: truncate(String(detail), 512),
+              ...(retry_after ? { retry_after } : {}),
+            };
           }
           turn.resolveDone();
         },
@@ -2295,6 +2336,7 @@
         error: turn.error.code,
         detail: turn.error.detail,
         chat_id: turn.chatId,
+        ...(turn.error.retry_after ? { retry_after: turn.error.retry_after } : {}),
         ...(observedIdentity ? { account_id: observedIdentity } : {}),
       };
     }

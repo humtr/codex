@@ -178,7 +178,12 @@ fn sha256_bytes(data: &[u8]) -> [u8; 32] {
 
 fn matches_utility_prompt(text: &str) -> bool {
     let lower = text.to_ascii_lowercase();
-    lower.contains("concise, single-line task title")
+    // Codex 0.172+ Memory v2 templates (model-agnostic)
+    lower.contains("part of an agent memory system")
+        || lower.contains("produce json with `rollout_summary` and `rollout_slug`")
+        || lower.contains("consolidate the supplied rollout summaries into `memory_summary.md`")
+        // Active Memory v1 templates (existing profiles) & thread title generation
+        || lower.contains("concise, single-line task title")
         || lower.contains("generate a concise title")
         || lower.contains("transcript title generation")
         || lower.contains("generate a short title")
@@ -1076,10 +1081,11 @@ impl TurnAssembly {
                 .get("detail")
                 .and_then(Value::as_str)
                 .unwrap_or("ChatGPT page driver failed");
-            return Err(ProviderError::unavailable(
-                "chatgpt_driver_failed",
-                format!("{code}: {detail}"),
-            ));
+            let retry_after = driver_res
+                .get("retry_after")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned);
+            return Err(classify_driver_error(code, detail, retry_after));
         }
         if state == Some("in_progress") {
             return Err(ProviderError::unavailable(
@@ -1445,9 +1451,56 @@ impl ResponsesEncoder {
 
     fn failed(&mut self, err: ProviderError) -> Value {
         let mut response = self.response("failed", &[]);
-        response["error"] = json!({"code": err.code, "message": err.detail});
+        let mut error_obj = json!({"code": err.code, "message": err.detail});
+        if let Some(ra) = err.retry_after {
+            error_obj["headers"] = json!({"retry-after": ra});
+        }
+        response["error"] = error_obj;
         self.stamp(json!({"type": "response.failed", "response": response}))
     }
+}
+
+/// Map ChatGPT page-driver errors to Codex 0.172+ standard Responses error codes
+/// (`codex-api/src/sse/responses_error.rs`) while preserving diagnostic detail
+/// and `Retry-After` guidance.
+fn classify_driver_error(code: &str, detail: &str, retry_after: Option<String>) -> ProviderError {
+    let code_lc = code.to_ascii_lowercase();
+    let detail_lc = detail.to_ascii_lowercase();
+    let message = format!("{code}: {detail}");
+    if code_lc == "backend_http_429"
+        || code_lc.contains("too_many_requests")
+        || code_lc.contains("rate_limit")
+        || detail_lc.contains("too many requests")
+        || detail_lc.contains("rate limit")
+    {
+        return ProviderError::rate_limited("rate_limit_exceeded", message)
+            .with_retry_after(retry_after);
+    }
+    if matches!(
+        code_lc.as_str(),
+        "backend_http_502"
+            | "backend_http_503"
+            | "backend_http_529"
+            | "server_is_overloaded"
+            | "policy_capacity_unavailable"
+            | "too_many_active_generations"
+    ) {
+        return ProviderError::unavailable("server_is_overloaded", message)
+            .with_retry_after(retry_after);
+    }
+    if code_lc.contains("insufficient_quota")
+        || code_lc.contains("credit_balance_exhausted")
+        || code_lc.contains("usage_limit")
+    {
+        return ProviderError::unavailable("insufficient_quota", message);
+    }
+    if matches!(
+        code_lc.as_str(),
+        "invalid_prompt" | "backend_http_400" | "backend_http_422"
+    ) {
+        return ProviderError::bad_request("invalid_prompt", message);
+    }
+    ProviderError::unavailable("chatgpt_driver_failed", message).with_retry_after(retry_after)
 }
 
 fn append_tool_frames(
@@ -3260,6 +3313,51 @@ mod thin_option_b_tests {
             .as_str()
             .unwrap()
             .contains("31KB Codex developer boilerplate"));
+
+        // Model-agnostic Memory v2 detection (stage 1 extraction & consolidation) with arbitrary model slug.
+        let mem_v2_extract = json!({
+            "model": "future-model-9",
+            "instructions": "You are part of an agent memory system. Your job is to extract information from this rollout.",
+            "input": [{"role": "user", "content": "Analyze this rollout and produce JSON with `rollout_summary` and `rollout_slug`."}]
+        });
+        assert!(is_background_utility_request(None, &mem_v2_extract));
+
+        let mem_v2_consolidate = json!({
+            "model": "future-model-9",
+            "input": [{"role": "developer", "content": "Consolidate the supplied rollout summaries into `memory_summary.md`."}]
+        });
+        assert!(is_background_utility_request(None, &mem_v2_consolidate));
+    }
+
+    #[test]
+    fn failed_sse_maps_0172_standard_codes_and_retry_after_header() {
+        let mut assembly = TurnAssembly::default();
+        let err = assembly
+            .reconcile_settled(
+                &json!({
+                    "state": "error",
+                    "error": "backend_http_429",
+                    "detail": "Too Many Requests",
+                    "retry_after": "45"
+                }),
+                &[],
+            )
+            .unwrap_err();
+        assert_eq!(err.code, "rate_limit_exceeded");
+        assert_eq!(err.retry_after.as_deref(), Some("45"));
+        let mut enc = ResponsesEncoder::new("resp_err".into(), "gpt-6-2".into());
+        let frame = enc.failed(err);
+        assert_eq!(frame["type"], "response.failed");
+        assert_eq!(frame["response"]["error"]["code"], "rate_limit_exceeded");
+        assert_eq!(frame["response"]["error"]["headers"]["retry-after"], "45");
+
+        let overload =
+            classify_driver_error("backend_http_503", "upstream busy", Some("12".into()));
+        assert_eq!(overload.code, "server_is_overloaded");
+        assert_eq!(overload.retry_after.as_deref(), Some("12"));
+
+        let quota = classify_driver_error("insufficient_quota", "cap reached", None);
+        assert_eq!(quota.code, "insufficient_quota");
     }
 
     #[test]

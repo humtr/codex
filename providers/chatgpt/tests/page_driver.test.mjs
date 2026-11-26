@@ -1641,3 +1641,29 @@ test('thin option B resolves native account pin, deduplicates signatures, and re
   assert.equal(retry.state, 'settled');
   assert.equal(f.startCalls[1].request.parent_message_id, first.remote_head);
 });
+
+test('thin option B propagates Retry-After from completion stream errors', async () => {
+  const env = createMockEnv({
+    apiMap: {
+      'GET /backend-api/me': { status: 200, body: { account_id: 'acc-rl' } },
+    },
+    completionBehavior(args) {
+      queueMicrotask(() => {
+        args.onError({
+          responseStatus: 429,
+          error: 'Too Many Requests',
+          responseHeaders: { 'Retry-After': '37' },
+        });
+      });
+      return { streamRequestId: 'stream-rl' };
+    },
+  });
+  const res = await env.driver.sendMessage({
+    model: 'gpt-6-2-thinking',
+    wait_ms: 1000,
+    native_candidate: { parent_message_id: 'root', messages: [{ id: 'u-rl', role: 'user', parts: ['hi'] }] },
+  });
+  assert.equal(res.state, 'error');
+  assert.equal(res.error, 'backend_http_429');
+  assert.equal(res.retry_after, '37');
+});

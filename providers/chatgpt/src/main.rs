@@ -367,7 +367,9 @@ fn format_codex_profile(bind: &str, model: &str, catalog_path: &Path, standalone
              requires_openai_auth = false\n\
              supports_websockets = false\n\
              request_max_retries = 0\n\
-             stream_max_retries = 0\n"
+             stream_max_retries = 0\n\n\
+             [model_providers.chatgpt_desktop.capabilities]\n\
+             remote_compaction = \"unsupported\"\n"
         )
     } else {
         format!(
@@ -385,7 +387,9 @@ fn format_codex_profile(bind: &str, model: &str, catalog_path: &Path, standalone
              requires_openai_auth = false\n\
              supports_websockets = false\n\
              request_max_retries = 0\n\
-             stream_max_retries = 0\n"
+             stream_max_retries = 0\n\n\
+             [model_providers.chatgpt_desktop.capabilities]\n\
+             remote_compaction = \"unsupported\"\n"
         )
     }
 }

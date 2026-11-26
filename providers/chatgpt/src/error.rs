@@ -1,7 +1,7 @@
 //! Structured errors for `chatgpt-provider`.
 
 use axum::{
-    http::StatusCode,
+    http::{header, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
@@ -13,6 +13,7 @@ pub struct ProviderError {
     pub code: &'static str,
     pub detail: String,
     pub status: StatusCode,
+    pub retry_after: Option<String>,
 }
 
 impl ProviderError {
@@ -21,6 +22,7 @@ impl ProviderError {
             code,
             detail: detail.into(),
             status: StatusCode::BAD_REQUEST,
+            retry_after: None,
         }
     }
 
@@ -29,6 +31,16 @@ impl ProviderError {
             code,
             detail: detail.into(),
             status: StatusCode::UNAUTHORIZED,
+            retry_after: None,
+        }
+    }
+
+    pub fn rate_limited(code: &'static str, detail: impl Into<String>) -> Self {
+        Self {
+            code,
+            detail: detail.into(),
+            status: StatusCode::TOO_MANY_REQUESTS,
+            retry_after: None,
         }
     }
 
@@ -37,6 +49,7 @@ impl ProviderError {
             code,
             detail: detail.into(),
             status: StatusCode::SERVICE_UNAVAILABLE,
+            retry_after: None,
         }
     }
 
@@ -45,7 +58,20 @@ impl ProviderError {
             code,
             detail: detail.into(),
             status: StatusCode::INTERNAL_SERVER_ERROR,
+            retry_after: None,
         }
+    }
+
+    pub fn with_retry_after(mut self, retry_after: Option<String>) -> Self {
+        self.retry_after = retry_after.and_then(|s| {
+            let trimmed = s.trim();
+            if !trimmed.is_empty() && trimmed.len() <= 64 && trimmed.is_ascii() {
+                Some(trimmed.to_owned())
+            } else {
+                None
+            }
+        });
+        self
     }
 }
 
@@ -59,7 +85,7 @@ impl std::error::Error for ProviderError {}
 
 impl IntoResponse for ProviderError {
     fn into_response(self) -> Response {
-        (
+        let mut resp = (
             self.status,
             Json(json!({
                 "state": "error",
@@ -67,7 +93,13 @@ impl IntoResponse for ProviderError {
                 "detail": self.detail
             })),
         )
-            .into_response()
+            .into_response();
+        if let Some(ra) = self.retry_after.as_deref() {
+            if let Ok(hv) = HeaderValue::from_str(ra) {
+                resp.headers_mut().insert(header::RETRY_AFTER, hv);
+            }
+        }
+        resp
     }
 }
 
