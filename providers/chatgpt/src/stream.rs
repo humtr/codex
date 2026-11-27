@@ -121,12 +121,20 @@ pub struct AssembledItem {
 #[derive(Default)]
 pub struct TurnAssembly {
     pub items: Vec<AssembledItem>,
+    preserve_text: bool,
     committed_commentaries: HashSet<String>,
     last_committed_commentary: Option<String>,
     lane_overflowed: bool,
 }
 
 impl TurnAssembly {
+    pub fn new(preserve_text: bool) -> Self {
+        Self {
+            preserve_text,
+            ..Self::default()
+        }
+    }
+
     fn strip_duplicate_commentary_prefix(&self, text: &str) -> Option<String> {
         let prev = self.last_committed_commentary.as_deref()?;
         if prev.is_empty() {
@@ -164,7 +172,7 @@ impl TurnAssembly {
         {
             return;
         }
-        if state != ContentState::Mutable {
+        if !self.preserve_text && state != ContentState::Mutable {
             match kind {
                 StreamItemKind::Commentary if committed => {
                     let norm = text.trim().to_owned();
@@ -484,7 +492,6 @@ pub fn estimate_tokens(value: &Value) -> u64 {
 pub struct ResponsesEncoder {
     id: String,
     model: String,
-    project_presentation: bool,
     sequence: u64,
     completed_output: Vec<Value>,
     open: Option<OpenTextItem>,
@@ -493,11 +500,10 @@ pub struct ResponsesEncoder {
 }
 
 impl ResponsesEncoder {
-    pub fn new(id: String, model: String, project_presentation: bool) -> Self {
+    pub fn new(id: String, model: String) -> Self {
         Self {
             id,
             model,
-            project_presentation,
             sequence: 0,
             completed_output: vec![],
             open: None,
@@ -567,7 +573,7 @@ impl ResponsesEncoder {
                 AssembledContent::Answer(t) => (false, "final_answer", t),
             };
             let committed = item.state == ContentState::Committed;
-            let rendered = if reasoning || !self.project_presentation {
+            let rendered = if reasoning || assembly.preserve_text {
                 text.clone()
             } else if committed {
                 crate::presentation::render_for_codex_tui(text)

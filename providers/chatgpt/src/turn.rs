@@ -58,7 +58,7 @@ fn matches_utility_prompt(lower: &str) -> bool {
 fn matches_utility_kind(kind: &str) -> bool {
     matches!(
         kind,
-        "title" | "memory" | "memories" | "guardian" | "auto_review"
+        "title" | "thread_title" | "memory" | "memories" | "guardian" | "auto_review"
     ) || kind.starts_with("title_")
         || kind.starts_with("memory_")
 }

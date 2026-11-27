@@ -1109,12 +1109,13 @@ mod tests {
         std::fs::create_dir_all(&cwd).unwrap();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
+        let raw = "VISIBLE_FIXTURE_ANSWER <badge color=\"success\">Ready</badge> `Vec<T>`";
         let router = build_router(
             MockDriver::new(json!({
                 "state":"settled", "reasoning_summary":"VISIBLE_FIXTURE_SUMMARY",
-                "assistant_text":"VISIBLE_FIXTURE_ANSWER", "test_delay_ms":450,
+                "assistant_text":raw, "test_delay_ms":450,
                 "test_snapshots":[{"kind":"reasoning","text":"VISIBLE_FIXTURE_SUMMARY"},
-                                  {"kind":"answer","text":"VISIBLE_FIXTURE_ANSWER"}]
+                                  {"kind":"answer","text":raw}]
             })),
             Default::default(),
             Default::default(),
@@ -1129,6 +1130,15 @@ mod tests {
 model = "fixture-model"
 model_provider = "chatgpt_desktop"
 approval_policy = "never"
+sandbox_mode = "danger-full-access"
+check_for_update_on_startup = false
+web_search = "disabled"
+[features]
+memories = false
+[analytics]
+enabled = false
+[feedback]
+enabled = false
 [model_providers.chatgpt_desktop]
 name = "Isolated Provider fixture"
 base_url = "http://{addr}/v1"
@@ -1146,10 +1156,13 @@ wire_api = "responses"
                     "exec",
                     "--json",
                     "--skip-git-repo-check",
+                    "-s",
+                    "danger-full-access",
                     "Run the streaming fixture",
                 ])
                 .current_dir(&cwd)
                 .env("CODEX_HOME", &home)
+                .env("CODEX_DISABLE_UPDATE_PROMPT", "1")
                 .env_remove("CODEX_SHARED_HOME")
                 .env_remove("CODEX_SQLITE_HOME")
                 .env_remove("CODEX_THREAD_ID")
@@ -1177,7 +1190,12 @@ wire_api = "responses"
         assert!(
             items.iter().any(|v| v["type"] == "item.completed"
                 && v["item"]["type"] == "agent_message"
-                && v["item"]["text"] == "VISIBLE_FIXTURE_ANSWER"),
+                && v["item"]["text"].as_str().is_some_and(|text| {
+                    text.contains("VISIBLE_FIXTURE_ANSWER")
+                        && text.contains("Ready")
+                        && text.contains("`Vec<T>`")
+                        && !text.contains("<badge")
+                })),
             "{stdout}"
         );
         let sessions = std::process::Command::new("rg")
@@ -2078,7 +2096,12 @@ wire_api = "responses"
             ]
         }));
         let threads = Arc::new(crate::responses::ResponseThreadMap::default());
-        for kind in ["title_gen", "memory", "guardian"] {
+        for metadata in [
+            json!({"request_kind":"title_gen"}),
+            json!({"request_kind":"turn", "thread_source":"thread_title"}),
+            json!({"request_kind":"memory"}),
+            json!({"request_kind":"guardian"}),
+        ] {
             for stream in [true, false] {
                 let response = crate::responses::handle_responses_with_metadata(
                     driver.clone(),
@@ -2087,7 +2110,7 @@ wire_api = "responses"
                     &Default::default(),
                     threads.clone(),
                     Some("utility-fixture".into()),
-                    Some(json!({"request_kind":kind})),
+                    Some(metadata.clone()),
                     None,
                     std::time::Duration::from_secs(30),
                     json!({"input":"Utility fixture", "stream":stream}),
@@ -2107,7 +2130,7 @@ wire_api = "responses"
                         .filter(|ev| ev["type"] == "response.output_text.delta")
                         .map(|ev| ev["delta"].as_str().unwrap())
                         .collect();
-                    assert_eq!(delta, raw, "{kind}");
+                    assert_eq!(delta, raw, "{metadata}");
                     events
                         .iter()
                         .find(|ev| ev["type"] == "response.completed")
@@ -2116,13 +2139,146 @@ wire_api = "responses"
                 } else {
                     serde_json::from_slice(&bytes).unwrap()
                 };
-                assert_eq!(output["output"][0]["content"][0]["text"], raw, "{kind}");
+                assert_eq!(output["output"][0]["content"][0]["text"], raw, "{metadata}");
                 let sent = driver.last_send.lock().unwrap().clone().unwrap();
                 assert!(sent["chat_id"].is_null());
                 assert_eq!(sent["temporary"], true);
             }
         }
         assert!(threads.get("session:utility-fixture").is_none());
+    }
+
+    #[tokio::test]
+    async fn upstream_body_metadata_protects_structured_title() {
+        let raw = r#"{"title":"<badge>literal</badge>"}"#;
+        let driver = MockDriver::new(json!({
+            "state":"settled", "chat_id":"conv-title", "assistant_text":raw,
+        }));
+        let router = build_router(
+            driver.clone(),
+            Default::default(),
+            Default::default(),
+            "fixture-control-token".to_owned(),
+            Arc::new(RwLock::new(None)),
+        );
+        let body = json!({
+            "stream":false,
+            "input":[{"role":"user","content":"Structured title fixture"}],
+            "client_metadata":{
+                "x-codex-turn-metadata":json!({"request_kind":"turn","thread_source":"thread_title"}).to_string()
+            }
+        });
+        let response = oneshot(
+            router,
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("content-type", "application/json")
+                .header(
+                    "x-codex-turn-metadata",
+                    r#"{"request_kind":"turn","thread_source":"user"}"#,
+                )
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let output: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 65536).await.unwrap()).unwrap();
+        assert_eq!(output["output"][0]["content"][0]["text"], raw);
+        let sent = driver.last_send.lock().unwrap().clone().unwrap();
+        assert_eq!(sent["temporary"], true);
+        assert!(sent["chat_id"].is_null());
+    }
+
+    #[tokio::test]
+    async fn machine_output_preserves_bytes_without_diverting_session() {
+        let raw = "{\n\"summary\":\"<badge>literal</badge> {item.value}\", \"next_action\":null}";
+        let driver = MockDriver::new(json!({
+            "state":"settled", "chat_id":"conv-machine", "account_id":"acct-machine",
+            "remote_head":"head-machine", "items":[
+                {"id":"c","kind":"commentary","text":"{"},
+                {"id":"a","kind":"answer","text":raw}
+            ],
+            "test_delay_ms":0,
+            "test_snapshots":[
+                {"item_id":"c","kind":"commentary","text":"{","committed":true},
+                {"item_id":"a","kind":"answer","text":"{\n\"summary\":\"<badge","committed":false,"streamable":true},
+                {"item_id":"a","kind":"answer","text":raw,"committed":true}
+            ]
+        }));
+        let history = config::HistoryConfig {
+            project_id: Some("g-p-machine".into()),
+            ..Default::default()
+        };
+        for (metadata, format) in [
+            (json!({"request_kind":"compaction"}), Value::Null),
+            (
+                json!({"request_kind":"turn"}),
+                json!({"type":"json_schema","name":"fixture","schema":{"type":"object"}}),
+            ),
+            (
+                json!({"request_kind":"turn"}),
+                json!({"type":"json_object"}),
+            ),
+        ] {
+            for stream in [true, false] {
+                let threads = Arc::new(crate::responses::ResponseThreadMap::default());
+                let mut body = json!({"input":[{"role":"user","content":"Summarize the supplied context"}], "stream":stream});
+                if !format.is_null() {
+                    body["text"] = json!({"format":format});
+                }
+                let resp = crate::responses::handle_responses_with_metadata(
+                    driver.clone(),
+                    &Default::default(),
+                    &history,
+                    &Default::default(),
+                    threads.clone(),
+                    Some("machine-fixture".into()),
+                    Some(metadata.clone()),
+                    None,
+                    Duration::from_secs(30),
+                    body,
+                )
+                .await
+                .unwrap();
+                let bytes = to_bytes(resp.into_body(), 65536).await.unwrap();
+                let response: Value = if stream {
+                    let events: Vec<Value> = std::str::from_utf8(&bytes)
+                        .unwrap()
+                        .lines()
+                        .filter_map(|line| line.strip_prefix("data: "))
+                        .map(|line| serde_json::from_str(line).unwrap())
+                        .collect();
+                    let joined: String = events
+                        .iter()
+                        .filter(|ev| {
+                            ev["type"] == "response.output_text.delta" && ev["output_index"] == 1
+                        })
+                        .map(|ev| ev["delta"].as_str().unwrap())
+                        .collect();
+                    assert_eq!(joined, raw);
+                    events
+                        .iter()
+                        .find(|ev| ev["type"] == "response.completed")
+                        .unwrap()["response"]
+                        .clone()
+                } else {
+                    serde_json::from_slice(&bytes).unwrap()
+                };
+                assert_eq!(response["output"][0]["content"][0]["text"], "{");
+                assert_eq!(response["output"][1]["content"][0]["text"], raw);
+                let entry = threads
+                    .get("session:machine-fixture")
+                    .expect("normal session remains committed");
+                assert_eq!(entry.chat_id, "conv-machine");
+                assert_eq!(entry.project_id.as_deref(), Some("g-p-machine"));
+                assert_eq!(entry.account_id.as_deref(), Some("acct-machine"));
+                let sent = driver.last_send.lock().unwrap().clone().unwrap();
+                assert_eq!(sent["project_id"], "g-p-machine");
+                assert_ne!(sent["temporary"], true);
+            }
+        }
     }
 
     #[tokio::test]

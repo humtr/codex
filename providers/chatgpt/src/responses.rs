@@ -176,7 +176,20 @@ pub async fn handle_responses_with_metadata(
     let resp_id = format!("resp_{}", random_hex(8)?);
     let lane_id = resp_id.clone();
 
-    let mut encoder = ResponsesEncoder::new(resp_id.clone(), requested_model, !utility);
+    // Local compaction consumes its assistant summary as future context;
+    // structured output is parsed by the caller, not displayed as Markdown.
+    // Neither condition changes the existing conversation routing.
+    let preserve_text = utility
+        || turn_metadata
+            .as_ref()
+            .and_then(|m| m["request_kind"].as_str())
+            == Some("compaction")
+        || matches!(
+            body["text"]["format"]["type"].as_str(),
+            Some("json_schema" | "json_object")
+        );
+    let assembly = TurnAssembly::new(preserve_text);
+    let mut encoder = ResponsesEncoder::new(resp_id.clone(), requested_model);
     encoder.input_tokens = estimate_tokens(&json!([body["input"], body["instructions"]]));
 
     if utility {
@@ -226,6 +239,7 @@ pub async fn handle_responses_with_metadata(
             None,
             send_payload,
             lane_id,
+            assembly,
             encoder,
             stream,
             sse_idle,
@@ -334,6 +348,7 @@ pub async fn handle_responses_with_metadata(
         effective_project_id,
         send_payload,
         lane_id,
+        assembly,
         encoder,
         stream,
         sse_idle,
@@ -351,6 +366,7 @@ async fn dispatch_responses_turn(
     effective_project_id: Option<String>,
     send_payload: Value,
     lane_id: String,
+    mut assembly: TurnAssembly,
     mut encoder: ResponsesEncoder,
     stream: bool,
     sse_idle: Duration,
@@ -359,7 +375,6 @@ async fn dispatch_responses_turn(
         let _lease = lease;
         let mut cancel_guard = CancelTurnGuard::new(Arc::clone(&driver), lane_id);
         let driver_res = driver.send_message(send_payload).await?;
-        let mut assembly = TurnAssembly::default();
         assembly.reconcile_settled(&driver_res)?;
         cancel_guard.disarm();
         let (_, final_resp) = encoder.finish(&mut assembly, &driver_res)?;
@@ -383,7 +398,6 @@ async fn dispatch_responses_turn(
         let _lease = lease;
         let mut cancel = CancelTurnGuard::new(Arc::clone(&driver), lane_id);
         let (event_tx, mut event_rx) = lane_channel();
-        let mut assembly = TurnAssembly::default();
         let mut turn = driver.stream_message(send_payload, event_tx);
         let mut keepalive = tokio::time::interval_at(
             tokio::time::Instant::now() + SSE_KEEPALIVE_INTERVAL,
@@ -561,6 +575,14 @@ mod tests {
             "input": [{"role": "user", "content": "fix bug"}]
         });
         assert!(is_background_utility_request(None, &title));
+        assert!(is_background_utility_request(
+            Some(&json!({"request_kind":"turn", "thread_source":"thread_title"})),
+            &json!({"input":"Structured title fixture"})
+        ));
+        assert!(!is_background_utility_request(
+            Some(&json!({"request_kind":"compaction"})),
+            &title
+        ));
 
         // Codex CLI may attach session tools and generic request_kind=turn on title_gen.
         let title_with_tools = json!({
@@ -671,7 +693,7 @@ mod tests {
     #[test]
     fn stream_encoder_streams_append_only_reasoning_and_answer_with_usage() {
         let mut assembly = TurnAssembly::default();
-        let mut enc = ResponsesEncoder::new("resp_s1".into(), "gpt-6-2".into(), true);
+        let mut enc = ResponsesEncoder::new("resp_s1".into(), "gpt-6-2".into());
         enc.input_tokens = 20;
         let _ = enc.start();
 
@@ -727,7 +749,7 @@ mod tests {
             "state": "settled",
             "items": [{"id": "a", "kind": "answer", "text": raw}]
         });
-        let mut enc = ResponsesEncoder::new("resp_projection".into(), "gpt-6-2".into(), true);
+        let mut enc = ResponsesEncoder::new("resp_projection".into(), "gpt-6-2".into());
         let mut assembly = TurnAssembly::default();
         let mut frames = enc.start();
         for (end, _) in raw.char_indices().skip(1) {
@@ -772,7 +794,7 @@ mod tests {
         let mut nonstream = TurnAssembly::default();
         nonstream.reconcile_settled(&settled).unwrap();
         let (_, nonstream_response) =
-            ResponsesEncoder::new("resp_projection".into(), "gpt-6-2".into(), true)
+            ResponsesEncoder::new("resp_projection".into(), "gpt-6-2".into())
                 .finish(&mut nonstream, &settled)
                 .unwrap();
         assert_eq!(response, nonstream_response);
@@ -780,7 +802,7 @@ mod tests {
 
     #[test]
     fn legacy_settlement_keeps_unpublished_strict_answer_suffix() {
-        let mut enc = ResponsesEncoder::new("resp_legacy".into(), "gpt-6-2".into(), true);
+        let mut enc = ResponsesEncoder::new("resp_legacy".into(), "gpt-6-2".into());
         let mut assembly = TurnAssembly::default();
         assembly.upsert_text(
             "a".into(),

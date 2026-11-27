@@ -141,9 +141,9 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
       synthesizes private reasoning, never leaks user echo messages or raw tool
       payloads into reasoning, and keeps `readChat` focused on visible
       `user`/`assistant` conversation history.
-  - Background utility isolation: Codex background utility calls (identified via
-    `x-codex-turn-metadata` `request_kind != "turn"` or `memory_consolidation`,
-    or tool-less title/memory prompts) bypass session leasing, project pinning,
+  - Background utility isolation: Codex background utility calls (identified by
+    the canonical `client_metadata["x-codex-turn-metadata"]`, its compatibility
+    HTTP header, or title/memory prompt signatures) bypass session leasing, project pinning,
     and `response_threads.json` persistence, and map unknown non-ChatGPT utility
     model slugs (such as Codex-only utility slugs) to an available ChatGPT slug so they
     never trigger `503 response_thread_busy` against the active user turn.
@@ -161,10 +161,14 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
     extension must retain every projected byte already emitted and add the
     remaining suffix. A projection inconsistency at settlement fails explicitly
     instead of silently committing truncated output. Background utility text
-    bypasses presentation. SSE and JSON share the encoder; the committed Codex
-    prefix uses exactly its emitted text, not a second projection. If a turn
-    supplies only a
-    user-visible summary with no answer, the same text is returned as the final
+    (including the upstream `thread_title` source), explicit compaction
+    summaries, and JSON-format responses bypass presentation and visible-text
+    deduplication across distinct message items. Compaction and
+    ordinary structured requests retain their existing session routing and
+    persistence; the bypass does not add schema enforcement. SSE and JSON share
+    the encoder; the committed Codex prefix uses exactly its emitted text, not
+    a second projection. If a turn supplies only a user-visible summary with
+    no answer, the same text is returned as the final
     answer. The stream emits 12-second SSE keepalives with a configurable
     upstream inactivity limit (`[server] sse_idle_secs`, default 660s / 11
     minutes, valid range `30..=7200`) and a two-hour total limit.

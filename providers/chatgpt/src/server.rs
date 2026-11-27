@@ -136,10 +136,22 @@ async fn v1_responses(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(ToOwned::to_owned);
-    let turn_metadata = headers
-        .get("x-codex-turn-metadata")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| serde_json::from_str::<Value>(s).ok());
+    // Upstream carries the authoritative metadata in the request body; the
+    // bounded HTTP header is a compatibility projection (and can be absent).
+    let parse_metadata = |s: &str| {
+        serde_json::from_str::<Value>(s)
+            .ok()
+            .filter(Value::is_object)
+    };
+    let turn_metadata = body["client_metadata"]["x-codex-turn-metadata"]
+        .as_str()
+        .and_then(parse_metadata)
+        .or_else(|| {
+            headers
+                .get("x-codex-turn-metadata")
+                .and_then(|v| v.to_str().ok())
+                .and_then(parse_metadata)
+        });
     handle_responses_with_metadata(
         Arc::clone(&st.driver),
         &st.model_cfg,
