@@ -119,14 +119,18 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
       MCP recipient) emit concise live progress summaries (`reasoning_summary`)
       and reset the upstream idle timer (`activity`) so long single-turn
       builds/tests remain visibly active in Codex TUI.
-    - Narrow DIL-to-GFM presentation projection (`presentation.rs`): committed
-      `commentary` and `final_answer` messages translate allowlisted ChatGPT DIL
-      UI tags (`<Link>`, `<badge>`, `<row>`, `<grid>`/`<grid-item>`/`<caption>`,
-      `<title>`, `<text>`, `<box>`, `<card>`, `<divider>`, `<svg>` labels,
-      `<checkbox>`, `<MemoryCite>`, and `{@body}`/`{#if}` directives) outside
-      fenced/inline code into Codex-native GFM Markdown while preserving code
-      blocks, inline code, unknown HTML/generics, and `readChat` host history
-      verbatim.
+    - Native-first DIL-to-GFM presentation projection (`presentation.rs`):
+      user-visible `commentary` and `final_answer` text uses one source-aware
+      semantic projection for stable streaming prefixes and settled responses.
+      Ordinary Markdown, code, literal and unknown ordinary markup remain
+      intact. Recognized display components retain supplied labels, values,
+      units, links and ordering in native Markdown or explicit readable
+      fallback; unresolved values and unsupported capabilities are identified,
+      not fabricated or silently dropped. Only deterministic local literals
+      and explicitly supported references/operations may be interpreted; no
+      arbitrary script, network access, callbacks, tools, or UI actions.
+      Controls are static unless an actual upstream-owned interaction exists.
+      Raw AppHost history, reasoning and tool payloads are unchanged.
     - Full AppHost reasoning emitted by the model (`thoughts[*]` entries with
       `summary` + `content` / `chunks`, formatted as `**{summary}**\n{content}`
       when both are present; `thoughts` `parts`/`content`; `channel === "analysis"`
@@ -152,8 +156,13 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
     Responses frames for committed items and explicitly stable append-only
     prefixes. Arbitrary mutable snapshots remain buffered; a violation of an
     already emitted prefix freezes the published prefix rather than corrupting
-    SSE. DIL presentation is applied before text emission; incomplete
-    presentation constructs are buffered. If a turn supplies only a
+    SSE. For presentation, buffer only incomplete render units; subsequent
+    ordinary prose must stream once ambiguity is resolved. A settled strict
+    extension must retain every projected byte already emitted and add the
+    remaining suffix. Background utility output bypasses presentation and is
+    returned verbatim. SSE and JSON share the encoder; the committed Codex
+    prefix uses exactly its emitted text, not a second projection. If a turn
+    supplies only a
     user-visible summary with no answer, the same text is returned as the final
     answer. The stream emits 12-second SSE keepalives with a configurable
     upstream inactivity limit (`[server] sse_idle_secs`, default 660s / 11
