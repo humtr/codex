@@ -54,8 +54,11 @@ independent recovery and automation plane even if every other component is down.
     large, the worker shortens the UTF-8 previews, sets the corresponding
     `*_text_truncated` flags and preserves the captured bytes in `*_base64`.
   - Each output stream (`stdout`, `stderr`) is capped at `64 KiB` with explicit
-    `stdout_truncated`/`stderr_truncated` flags and both UTF-8 lossy text and
-    Base64 (`stdout_base64`/`stderr_base64`).
+    `stdout_truncated`/`stderr_truncated` flags. Valid NUL-free UTF-8 text is
+    returned directly in `stdout`/`stderr` without duplicating redundant Base64
+    fields; `stdout_base64`/`stderr_base64` are included only when captured
+    bytes are non-UTF-8, contain NUL bytes, or require `*_text_truncated`
+    trimming to fit the receipt bound.
 
 ---
 

@@ -273,23 +273,40 @@ fn run_shell_command(script: &str, cwd: &Path, timeout_ms: u64, shell: &Path) ->
         "duration_ms": started.elapsed().as_millis() as u64,
         "stdout": String::from_utf8_lossy(&out),
         "stderr": String::from_utf8_lossy(&err),
-        "stdout_base64": base64_encode(&out),
-        "stderr_base64": base64_encode(&err),
         "stdout_truncated": out_truncated,
         "stderr_truncated": err_truncated,
         "cwd": cwd.to_string_lossy()
     });
-    fit_outcome_for_receipt(&mut outcome);
+    if needs_base64(&out) {
+        outcome["stdout_base64"] = json!(base64_encode(&out));
+    }
+    if needs_base64(&err) {
+        outcome["stderr_base64"] = json!(base64_encode(&err));
+    }
+    fit_outcome_for_receipt(&mut outcome, &out, &err);
     outcome
 }
 
-fn fit_outcome_for_receipt(outcome: &mut Value) {
+fn needs_base64(bytes: &[u8]) -> bool {
+    !bytes.is_empty() && (std::str::from_utf8(bytes).is_err() || bytes.contains(&0))
+}
+
+fn fit_outcome_for_receipt(outcome: &mut Value, raw_out: &[u8], raw_err: &[u8]) {
     // `MAX_OUTPUT_BYTES` base64 (<= ~175 KiB combined) always fits inside `MAX_RECEIPT_BYTES`
     // (520 KiB). However, binary control bytes in `stdout`/`stderr` JSON strings expand up to 6x
     // (`\u00XX`), which can push both fields past `MAX_RECEIPT_BYTES` and break `call_id` replay.
-    // Trim only the UTF-8 display strings if needed while keeping lossless `*_base64` intact.
+    // Trim only the UTF-8 display strings if needed while preserving lossless `*_base64`.
     const ENVELOPE_HEADROOM: usize = 1024;
     let limit = (MAX_RECEIPT_BYTES as usize).saturating_sub(ENVELOPE_HEADROOM);
+    if outcome.to_string().len() <= limit {
+        return;
+    }
+    if !raw_out.is_empty() && outcome.get("stdout_base64").is_none() {
+        outcome["stdout_base64"] = json!(base64_encode(raw_out));
+    }
+    if !raw_err.is_empty() && outcome.get("stderr_base64").is_none() {
+        outcome["stderr_base64"] = json!(base64_encode(raw_err));
+    }
     let encoded_len = outcome.to_string().len();
     if encoded_len <= limit {
         return;
@@ -699,9 +716,25 @@ mod tests {
         );
         assert_eq!(pg_res["exit_code"], 0);
         assert_eq!(pg_res["stdout"], "PG_OK\n");
+        assert!(pg_res.get("stdout_base64").is_none());
+        assert!(pg_res.get("stderr_base64").is_none());
         assert_eq!(pg_res["stdout_truncated"], false);
         assert_eq!(pg_res["stderr_truncated"], false);
         assert_eq!(pg_res["replay_safe"], true);
+
+        // Non-UTF-8 binary output MUST still attach lossless stdout_base64 while leaving empty stderr clean.
+        let non_utf8 = execute_with(
+            &root,
+            &sh(),
+            &json!({
+                "call_id": "non-utf8-binary",
+                "command": "printf '\\377\\376'",
+                "cwd": root
+            }),
+        );
+        assert_eq!(non_utf8["exit_code"], 0);
+        assert_eq!(non_utf8["stdout_base64"], "//4=");
+        assert!(non_utf8.get("stderr_base64").is_none());
 
         // Dual 64 KiB NUL bytes expand JSON strings beyond MAX_RECEIPT_BYTES unless trimmed;
         // lossless base64 and call_id replay MUST still commit cleanly.
