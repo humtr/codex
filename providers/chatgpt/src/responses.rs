@@ -27,7 +27,7 @@ use crate::stream::{
 };
 use crate::turn::{
     build_utility_wire_messages, derive_auto_project_name, extract_workspace_cwd,
-    is_background_utility_request, TurnPlan, TurnStrategy,
+    is_background_utility_request, is_compaction_request, TurnPlan, TurnStrategy,
 };
 use axum::{
     http::{header, StatusCode},
@@ -180,10 +180,7 @@ pub async fn handle_responses_with_metadata(
     // structured output is parsed by the caller, not displayed as Markdown.
     // Neither condition changes the existing conversation routing.
     let preserve_text = utility
-        || turn_metadata
-            .as_ref()
-            .and_then(|m| m["request_kind"].as_str())
-            == Some("compaction")
+        || is_compaction_request(turn_metadata.as_ref())
         || matches!(
             body["text"]["format"]["type"].as_str(),
             Some("json_schema" | "json_object")
@@ -377,16 +374,20 @@ async fn dispatch_responses_turn(
         let driver_res = driver.send_message(send_payload).await?;
         assembly.reconcile_settled(&driver_res)?;
         cancel_guard.disarm();
-        let (_, final_resp) = encoder.finish(&mut assembly, &driver_res)?;
+        let finished = encoder.finish(&mut assembly, &driver_res);
         if let Some(plan) = &plan {
             plan.commit(
                 &threads,
                 session_key.as_deref(),
                 &driver_res,
-                &final_resp["output"],
+                finished
+                    .as_ref()
+                    .ok()
+                    .map(|(_, response)| &response["output"]),
                 effective_project_id,
             )?;
         }
+        let (_, final_resp) = finished?;
         return Ok((StatusCode::OK, Json(final_resp)).into_response());
     }
 
@@ -407,6 +408,7 @@ async fn dispatch_responses_turn(
         let limit = tokio::time::sleep(SSE_LIMIT);
         tokio::pin!(idle, limit);
         let mut event_open = true;
+        let mut projection_error = None;
         let outcome = loop {
             tokio::select! {
                 biased;
@@ -431,13 +433,16 @@ async fn dispatch_responses_turn(
                         Some(event) => {
                             idle.as_mut().reset(tokio::time::Instant::now() + sse_idle);
                             assembly.apply_event(event);
-                            let frames = match encoder.flush_ready(&mut assembly) {
-                                Ok(frames) => frames,
-                                Err(err) => break Err(err),
-                            };
-                            if !frames.is_empty() && !send_frames(&tx, frames).await {
-                                cancel.cancel_now().await;
-                                return;
+                            if projection_error.is_none() {
+                                match encoder.flush_ready(&mut assembly) {
+                                    Ok(frames) => {
+                                        if !frames.is_empty() && !send_frames(&tx, frames).await {
+                                            cancel.cancel_now().await;
+                                            return;
+                                        }
+                                    }
+                                    Err(err) => projection_error = Some(err),
+                                }
                             }
                         }
                         None => event_open = false,
@@ -468,17 +473,23 @@ async fn dispatch_responses_turn(
                     return Err(err);
                 }
             }
-            let (frames, final_resp) = encoder.finish(&mut assembly, &settled)?;
+            let finished = match projection_error {
+                Some(err) => Err(err),
+                None => encoder.finish(&mut assembly, &settled),
+            };
             if let Some(plan) = &plan {
                 plan.commit(
                     &threads,
                     session_key.as_deref(),
                     &settled,
-                    &final_resp["output"],
+                    finished
+                        .as_ref()
+                        .ok()
+                        .map(|(_, response)| &response["output"]),
                     effective_project_id,
                 )?;
             }
-            Ok(frames)
+            finished.map(|(frames, _)| frames)
         })();
         let frames = match result {
             Ok(frames) => frames,
@@ -820,6 +831,56 @@ mod tests {
             response["output"][0]["content"][0]["text"],
             "Start and finish."
         );
+    }
+
+    #[test]
+    fn settled_answer_revision_checks_the_published_projection() {
+        for (raw, settled_text, succeeds) in [
+            ("Start <badge", "Start <bold>Done</bold>", true),
+            ("Original", "Revised", false),
+            ("Original", "", false),
+        ] {
+            let mut enc = ResponsesEncoder::new("resp_revised".into(), "gpt-6-2".into());
+            let mut assembly = TurnAssembly::default();
+            assembly.upsert_text(
+                "a".into(),
+                StreamItemKind::Answer,
+                raw.into(),
+                ContentState::Streaming,
+            );
+            let frames = enc.flush_ready(&mut assembly).unwrap();
+            assert!(frames
+                .iter()
+                .any(|f| f["type"] == "response.output_text.delta"));
+            // Mutable rewrite must not commit the old raw draft.
+            assembly.upsert_text(
+                "a".into(),
+                StreamItemKind::Answer,
+                settled_text.into(),
+                ContentState::Mutable,
+            );
+            assert!(enc.flush_ready(&mut assembly).unwrap().is_empty());
+            let items = if settled_text.is_empty() {
+                json!([])
+            } else {
+                json!([{"id":"a","kind":"answer","text":settled_text}])
+            };
+            let settled = json!({"state":"settled","items":items});
+            assembly.reconcile_settled(&settled).unwrap();
+            let result = enc.finish(&mut assembly, &settled);
+            if succeeds {
+                let (_, response) = result.unwrap();
+                assert_eq!(
+                    response["output"][0]["content"][0]["text"],
+                    "Start **Done**"
+                );
+            } else {
+                assert_eq!(
+                    result.unwrap_err().code,
+                    "chatgpt_output_prefix_inconsistent"
+                );
+            }
+        }
     }
 
     #[test]

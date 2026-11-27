@@ -1800,9 +1800,8 @@
     };
     const removeDraft = (item) => {
       if (!item || item.committed) return;
-      if (item.streamable) {
-        // No retraction exists in Responses SSE. Use the same frozen item in
-        // both streaming and settled results; do not log conversation text.
+      if (item.streamable && item.kind !== "answer") {
+        // Preserve the existing reasoning-summary contract.
         console.warn("provider: append-only item revised or removed");
         commitText(item);
       } else {
@@ -1846,10 +1845,13 @@
         return;
       }
       const extendsPrior = existing?.kind === itemKind && text.startsWith(existing.text);
-      if (existing?.streamable && (!extendsPrior || (!eligible && !committed))) {
+      const revised = existing?.streamable && (!extendsPrior || (!eligible && !committed));
+      if (revised && itemKind !== "answer") {
         removeDraft(existing);
         return;
       }
+      // Retain the latest raw answer and its already-published phase. Rust
+      // holds non-append revisions until settlement and checks the projection.
       const streamable = Boolean(existing?.streamable || (!committed && eligible && extendsPrior && text.length > existing.text.length));
       if (existing && existing.kind === itemKind && existing.text === text && !committed && existing.streamable === streamable) return;
       const item = { id: itemId, kind: itemKind, text, committed: Boolean(committed), msgKey, streamable };
@@ -2034,7 +2036,6 @@
         const prev = turn.items.get(canonicalId);
         if (prev && !prev.committed) {
           removeDraft(prev);
-          if (prev.streamable) { syncDerivedAssistantText(); return; }
           canonicalId = `commentary:${msgKey}`;
           msgTextItemId.set(msgKey, canonicalId);
         }

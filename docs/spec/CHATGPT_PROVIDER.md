@@ -123,7 +123,8 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
       user-visible `commentary` and `final_answer` text uses one source-aware
       semantic projection for stable streaming prefixes and settled responses.
       Ordinary Markdown, code, literal and unknown ordinary markup remain
-      intact. Recognized display components retain supplied labels, values,
+      intact except terminal control characters removed at the display
+      projection boundary (line feeds and tabs retained). Recognized display components retain supplied labels, values,
       units, links and ordering in native Markdown or explicit readable
       fallback; unresolved values and unsupported capabilities are identified,
       not fabricated or silently dropped. Only deterministic local literals
@@ -154,15 +155,25 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
   - `stream.rs` maintains one authoritative `TurnAssembly` (`Mutable`,
     `Streaming`, `Committed`) and one `ResponsesEncoder` that emits immutable
     Responses frames for committed items and explicitly stable append-only
-    prefixes. Arbitrary mutable snapshots remain buffered; a violation of an
-    already emitted prefix freezes the published prefix rather than corrupting
-    SSE. For presentation, buffer only incomplete render units; subsequent
+    prefixes. Arbitrary mutable snapshots remain buffered. The page driver
+    retains the authoritative visible answer through raw revisions; Rust
+    does not commit a stale answer when a mutable rewrite is received. The
+    already published projection, rather than the raw draft, governs final
+    prefix consistency. The existing reasoning-summary freeze is unchanged.
+    For presentation, buffer only incomplete render units; subsequent
     ordinary prose must stream once ambiguity is resolved. A settled strict
     extension must retain every projected byte already emitted and add the
     remaining suffix. A projection inconsistency at settlement fails explicitly
-    instead of silently committing truncated output. Background utility text
+    instead of silently committing truncated output. If a remote turn settles
+    but publication fails, the existing thread binding persists its account,
+    project, remote head and submitted input digest with output_unavailable,
+    not a fabricated successful output. The same submitted input is not
+    redispatched. Failed response IDs, mismatched history or missing remote
+    heads require reconciliation; a verified submitted prefix with new input
+    can continue on the recorded remote head. Background utility text
     (including the upstream `thread_title` source), explicit compaction
-    summaries, and JSON-format responses bypass presentation and visible-text
+    summaries (the same normalized metadata fields used for utility
+    classification), and JSON-format responses bypass presentation and visible-text
     deduplication across distinct message items. Compaction and
     ordinary structured requests retain their existing session routing and
     persistence; the bypass does not add schema enforcement. SSE and JSON share

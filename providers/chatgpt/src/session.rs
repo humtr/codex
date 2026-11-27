@@ -30,6 +30,8 @@ pub struct ThreadBinding {
     pub request_input_len: usize,
     #[serde(default)]
     pub request_input_sha256: [u8; 32],
+    #[serde(default)]
+    pub output_unavailable: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

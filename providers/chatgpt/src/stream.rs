@@ -225,7 +225,14 @@ impl TurnAssembly {
                     }
                     _ => false,
                 };
-                if !extends || state == ContentState::Mutable {
+                if matches!(&existing.content, AssembledContent::Answer(_)) {
+                    // Ignore mutable revisions until settlement. A raw rewrite
+                    // can still extend the projected prefix; only the encoder
+                    // knows which bytes actually reached the consumer.
+                    if !committed && (!extends || state == ContentState::Mutable) {
+                        return;
+                    }
+                } else if !extends || state == ContentState::Mutable {
                     eprintln!("provider: append-only item revised; preserving published prefix");
                     existing.state = ContentState::Committed;
                     return;
@@ -245,7 +252,10 @@ impl TurnAssembly {
 
     pub fn remove_mutable(&mut self, id: &str) {
         for item in &mut self.items {
-            if item.id == id && item.state == ContentState::Streaming {
+            if item.id == id
+                && item.state == ContentState::Streaming
+                && !matches!(&item.content, AssembledContent::Answer(_))
+            {
                 eprintln!("provider: append-only item removed; preserving published prefix");
                 item.state = ContentState::Committed;
             }
@@ -329,19 +339,20 @@ impl TurnAssembly {
             .collect();
 
         if let Some(items) = driver_res.get("items").and_then(Value::as_array) {
+            let mut settled_answer_ids = HashSet::new();
             for entry in items {
                 let kind = entry.get("kind").and_then(Value::as_str).unwrap_or("");
                 let text = entry.get("text").and_then(Value::as_str).unwrap_or("");
-                if text.is_empty() {
-                    continue;
-                }
                 let item_id = entry
                     .get("id")
                     .and_then(Value::as_str)
                     .filter(|s| !s.is_empty())
                     .map(ToOwned::to_owned)
                     .unwrap_or_else(|| format!("{kind}_{}", self.items.len()));
-                if committed_ids.contains(&item_id) {
+                if kind == "answer" {
+                    settled_answer_ids.insert(item_id.clone());
+                }
+                if committed_ids.contains(&item_id) || (text.is_empty() && kind != "answer") {
                     continue;
                 }
                 let stream_kind = match kind {
@@ -356,6 +367,16 @@ impl TurnAssembly {
                     text.to_owned(),
                     ContentState::Committed,
                 );
+            }
+            // The authoritative items array may omit a removed answer. Do
+            // not promote its previously published raw draft into success.
+            for item in &mut self.items {
+                if item.state == ContentState::Streaming
+                    && matches!(&item.content, AssembledContent::Answer(_))
+                    && !settled_answer_ids.contains(&item.id)
+                {
+                    item.content = AssembledContent::Answer(String::new());
+                }
             }
         } else {
             let summary = driver_res
@@ -615,6 +636,17 @@ impl ResponsesEncoder {
                 self.open = Some(open);
             }
             let open = self.open.as_mut().unwrap();
+            if open.part_id.is_some()
+                && (open.reasoning() != reasoning || (!reasoning && open.item["phase"] != phase))
+            {
+                if committed {
+                    return Err(ProviderError::internal(
+                        "chatgpt_output_prefix_inconsistent",
+                        "Settled item changed its published phase",
+                    ));
+                }
+                break;
+            }
             if open.part_id.is_none() {
                 open.part_id = Some(item.id.clone());
                 frames.push(open.frame(index, "added", "part", open.part("")));

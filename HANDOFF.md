@@ -4,7 +4,7 @@ Prepared 2026-11-27 at the user's request (plan correction and readiness).
 Authority: `AGENTS.md`, `SPEC.md`, `docs/INDEX.md`,
 `docs/spec/CHATGPT_PROVIDER.md`, and [ROADMAP §11](docs/ROADMAP.md#11-deferred-codex-presentation-improvements).
 This is the single active preparation work order, not a new product contract.
-**State: ISOLATED SOURCE CANDIDATE IMPLEMENTED; independent review and live/physical gates remain open.**
+**State: ISOLATED SOURCE CANDIDATE CORRECTED AFTER INDEPENDENT REVIEW; final independent review and live/physical gates remain open.**
 The previous Native-return work order is preserved byte-for-byte in Git
 (`git show 3f12f956:HANDOFF.md`), not marked completed. Its replacement
 route and unresolved acceptance risks are recorded in
@@ -112,6 +112,20 @@ No replay or new settlement attempt was performed.
   128-level nesting guard retains the deep literal region with an explicit
   marker; 128/512-depth and ~100 KiB cases were exercised. No arbitrary
   runtime, external retrieval or invented chart values/geometry.
+- V1 review of 8d268653 was inconclusive. W9 independently reran all
+  12 gate commands (exit 0, $PREFIX/tmp/p1-independent-rerun.MFaNTi).
+  W10/W11 independent review found parser and encoder/continuity defects.
+  W12/W13 repaired disjoint parser/renderer paths in isolated worktrees;
+  Lead integrated and simplified the table traversal, corrected visible
+  answer settlement through page_driver/assembly/encoder, normalized
+  compaction bypass, and persisted failed-publication receipts using the
+  existing ThreadBinding. Executable regressions cover compatible raw
+  rewrites, incompatible revisions/removal, durable readback, replay
+  rejection and exact-prefix continuation. Original oracle unchanged.
+  The older PTY evidence applies to the earlier candidate, not this
+  corrected source. Numeric-dollar/prose and identifier-adjacent markup
+  use a conservative grammar; genuinely ambiguous literal markup may
+  remain buffered and unresolved expressions stay explicit.
 - No authenticated live candidate AppHost, Android physical UI, signed
   package, publication, activation or rollback test is authorized or
   qualified by this candidate. Independent verdict remains necessary.

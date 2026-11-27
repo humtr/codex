@@ -739,9 +739,9 @@ without resurrecting Native-only features or marking the old milestone closed.
 
 ## 11. Deferred Codex presentation improvements
 
-**Status:** Phase 1 isolated source candidate implemented and locally tested
-on 2026-11-27; independent review and authenticated/physical qualification
-remain open. This is not a live deployment.
+**Status:** Phase 1 isolated source candidate implemented, independently
+reviewed, and corrected on 2026-11-27; final independent review and
+authenticated/physical qualification remain open. This is not a live deployment.
 `HANDOFF.md` is the single active execution checklist. The existing
 presentation regression boundary remains mandatory during all Provider work;
 the retired Native-return plan is not a reason to postpone isolated rendering

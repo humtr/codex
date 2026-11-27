@@ -103,97 +103,125 @@ fn table(header: &[String], rows: &[Vec<String>]) -> String {
 }
 
 fn layout_table(ns: &[Node]) -> String {
-    fn collect(
-        ns: &[Node],
-        rows: &mut Vec<(bool, Vec<String>)>,
-        extras: &mut Vec<String>,
-        section_header: bool,
-    ) {
+    // GFM cannot represent spans, mixed header cells or later header rows.
+    fn collect(ns: &[Node], rows: &mut Vec<(bool, Vec<String>)>) -> bool {
         for n in ns {
             match n {
+                Node::Text(t) if t.trim().is_empty() => {}
                 Node::Element {
                     name,
                     attrs,
                     children,
-                } if name == "table-section" => collect(
-                    children,
-                    rows,
-                    extras,
-                    section_header || matches!(get(attrs, "header"), Some(Value::Bool(true))),
-                ),
+                } if name == "table-section" => {
+                    if get(attrs, "header").is_some() || !collect(children, rows) {
+                        return false;
+                    }
+                }
                 Node::Element {
                     name,
                     attrs,
                     children,
                 } if name == "table-row" => {
+                    let header = get(attrs, "header");
+                    if get(attrs, "label").is_some()
+                        || get(attrs, "labelColSpan").is_some()
+                        || header.is_some_and(|v| !matches!(v, Value::Bool(_)))
+                        || (!rows.is_empty() && matches!(header, Some(Value::Bool(true))))
+                    {
+                        return false;
+                    }
                     let mut cells = Vec::new();
-                    let mut header =
-                        section_header || matches!(get(attrs, "header"), Some(Value::Bool(true)));
-                    for c in children {
-                        if let Node::Element {
-                            name,
-                            attrs,
-                            children,
-                        } = c
-                        {
-                            if name == "table-cell" {
-                                header |= matches!(get(attrs, "header"), Some(Value::Bool(true)));
-                                let mut content = body(children);
-                                for k in ["colSpan", "rowSpan"] {
-                                    if let Some(v) = get(attrs, k) {
-                                        content.push_str(&format!(" [{}: {}]", k, value(v)));
-                                    }
+                    for cell in children {
+                        match cell {
+                            Node::Text(t) if t.trim().is_empty() => {}
+                            Node::Element {
+                                name,
+                                attrs,
+                                children,
+                            } if name == "table-cell" => {
+                                if ["rowSpan", "colSpan", "header"]
+                                    .iter()
+                                    .any(|k| get(attrs, k).is_some())
+                                {
+                                    return false;
                                 }
-                                cells.push(content);
-                                continue;
+                                cells.push(body(children));
                             }
-                        }
-                        let s = render_node(c);
-                        if !s.trim().is_empty() {
-                            cells.push(s);
+                            _ => return false,
                         }
                     }
-                    if let Some(v) = get(attrs, "label") {
-                        cells.insert(0, value(v));
+                    if cells.is_empty()
+                        || rows
+                            .first()
+                            .is_some_and(|(_, row)| row.len() != cells.len())
+                    {
+                        return false;
                     }
-                    if !cells.is_empty() {
-                        rows.push((header, cells));
-                    }
+                    rows.push((matches!(header, Some(Value::Bool(true))), cells));
                 }
-                _ => {
-                    let s = render_node(n);
-                    if !s.trim().is_empty() {
-                        extras.push(s);
+                _ => return false,
+            }
+        }
+        true
+    }
+    fn records(ns: &[Node], out: &mut String, depth: usize) {
+        for n in ns {
+            if let Node::Element {
+                name,
+                attrs,
+                children,
+            } = n
+            {
+                if matches!(name.as_str(), "table-section" | "table-row" | "table-cell") {
+                    let indent = "  ".repeat(depth);
+                    let fields = ["header", "label", "labelColSpan", "rowSpan", "colSpan"]
+                        .iter()
+                        .filter_map(|k| get(attrs, k).map(|v| format!("{k}: {}", value(v))))
+                        .collect::<Vec<_>>()
+                        .join("; ");
+                    let kind = name.trim_start_matches("table-");
+                    out.push_str(&format!("{indent}- {kind}"));
+                    if !fields.is_empty() {
+                        out.push_str(&format!(" [{fields}]"));
                     }
+                    if kind == "cell" {
+                        out.push_str(&format!(
+                            ": {}",
+                            body(children)
+                                .trim()
+                                .replace('\n', &format!("\n{indent}  "))
+                        ));
+                    }
+                    out.push('\n');
+                    if kind != "cell" {
+                        records(children, out, depth + 1);
+                    }
+                    continue;
                 }
+            }
+            let content = render_node(n);
+            if !content.trim().is_empty() {
+                out.push_str(&format!("{}- {}\n", "  ".repeat(depth), content.trim()));
             }
         }
     }
     let mut rows = Vec::new();
-    let mut extras = Vec::new();
-    collect(ns, &mut rows, &mut extras, false);
-    let width = rows.iter().map(|(_, r)| r.len()).max().unwrap_or(0);
-    let mut out = String::new();
-    if width > 0 {
-        let mut header = if rows[0].0 {
-            rows.remove(0).1
-        } else {
-            (1..=width).map(|i| format!("Column {i}")).collect()
-        };
-        header.resize(width, String::new());
-        let data = rows
-            .into_iter()
-            .map(|(_, mut r)| {
-                r.resize(width, "[missing]".into());
-                r
-            })
-            .collect::<Vec<_>>();
-        out = table(&header, &data);
+    if !collect(ns, &mut rows) || rows.is_empty() {
+        let mut out = "\n**[Table: grouped records; spans/layout unavailable]**\n".to_owned();
+        records(ns, &mut out, 0);
+        out.push('\n');
+        return out;
     }
-    if !extras.is_empty() {
-        out.push_str(&extras.join("\n"));
-    }
-    out
+    let width = rows[0].1.len();
+    let header = if rows[0].0 {
+        rows.remove(0).1
+    } else {
+        (1..=width).map(|i| format!("Column {i}")).collect()
+    };
+    table(
+        &header,
+        &rows.into_iter().map(|(_, r)| r).collect::<Vec<_>>(),
+    )
 }
 
 fn grid(ns: &[Node]) -> String {
@@ -238,8 +266,14 @@ fn chart(a: &Attrs) -> String {
     let o = object(content);
     let x = get(o, "xKey")
         .or_else(|| get(o, "nameKey"))
-        .map(value)
+        .and_then(|v| match v {
+            Value::String(s) => Some(s.clone()),
+            _ => None,
+        })
         .unwrap_or_default();
+    if get(o, "series").is_some_and(|v| !matches!(v, Value::Array(_))) {
+        return format!("[Chart unavailable: malformed series; {}]", value(content));
+    }
     let series = array(get(o, "series"));
     let data = array(get(o, "data"));
     if x.is_empty() || data.is_empty() || (series.is_empty() && get(o, "valueKey").is_none()) {
@@ -250,9 +284,15 @@ fn chart(a: &Attrs) -> String {
     let mut specs = Vec::new();
     for s in series {
         let p = object(s);
+        if !matches!(s, Value::Object(_)) {
+            return format!("[Chart unavailable: malformed series; {}]", value(content));
+        }
         let key = get(p, "dataKey")
             .or_else(|| get(o, "valueKey"))
-            .map(value)
+            .and_then(|v| match v {
+                Value::String(s) => Some(s.clone()),
+                _ => None,
+            })
             .unwrap_or_default();
         if key.is_empty() {
             return format!("[Chart unavailable: {}]", value(content));
@@ -262,7 +302,13 @@ fn chart(a: &Attrs) -> String {
         specs.push((attr(p, "valuePrefix"), attr(p, "valueSuffix")));
     }
     if keys.is_empty() {
-        let key = attr(o, "valueKey");
+        let Some(Value::String(key)) = get(o, "valueKey") else {
+            return format!("[Chart unavailable: {}]", value(content));
+        };
+        if key.is_empty() {
+            return format!("[Chart unavailable: {}]", value(content));
+        }
+        let key = key.clone();
         header.push(key.clone());
         keys.push(key);
         specs.push((String::new(), String::new()));
@@ -339,6 +385,7 @@ fn control(name: &str, a: &Attrs, ns: &[Node]) -> String {
         "marks",
         "options",
         "activeIndex",
+        "defaultIndex",
         "disabled",
         "required",
     ] {
@@ -416,7 +463,8 @@ pub(super) fn render_node(node: &Node) -> String {
         }
     };
     match name.as_str() {
-        "MemoryCite" | "spacer" => String::new(),
+        "MemoryCite" => "[Memory reference unavailable]".into(),
+        "spacer" => String::new(),
         "divider" => "\n\n---\n\n".into(),
         "icon" => {
             let s = attr(a, "name");
@@ -457,6 +505,7 @@ pub(super) fn render_node(node: &Node) -> String {
                 if (u.starts_with("https://") || u.starts_with("http://"))
                     && u.split_once("://")
                         .is_some_and(|(_, r)| !r.is_empty() && !r.starts_with('/'))
+                    && !title.chars().any(|c| c.is_control())
                     && !u.chars().any(|c| {
                         c.is_whitespace()
                             || c.is_control()
@@ -477,13 +526,13 @@ pub(super) fn render_node(node: &Node) -> String {
             }
             format!(
                 "{title} [link unavailable{}]",
-                url.map(|v| format!(": {}", value(v))).unwrap_or_default()
+                url.map(|v| format!(": {}", value(v).replace('[', "\\[").replace(']', "\\]")))
+                    .unwrap_or_default()
             )
         }
         "row" => grouped(ns, " · "),
         "grid" => grid(ns),
-        "grid-item" | "col" | "flow" | "flow-item" | "card" | "box" | "carousel"
-        | "carousel-item" => {
+        "grid-item" | "col" | "flow" | "flow-item" | "card" | "box" | "carousel-item" => {
             let title = attr(a, "title");
             let s = b();
             format!(
@@ -496,7 +545,8 @@ pub(super) fn render_node(node: &Node) -> String {
                 s.trim_matches('\n')
             )
         }
-        "list" | "radio-group" => grouped(ns, "\n"),
+        "list" => grouped(ns, "\n"),
+        "radio-group" | "carousel" => control(name, a, ns),
         "list-item" => format!("- {}\n", label().replace('\n', "\n  ")),
         "checkbox" => {
             let v = get(a, "checked").or_else(|| get(a, "defaultChecked"));
@@ -577,6 +627,53 @@ mod tests {
     fn obj(fields: Vec<(&str, Value)>) -> Value {
         Value::Object(fields.into_iter().map(|(k, v)| (k.into(), v)).collect())
     }
+    #[test]
+    fn selections_and_complex_tables() {
+        let project = super::super::render_for_codex_tui;
+        for (input, expected) in [
+            (
+                r#"<radio-group value="b"><radio value="a">A</radio><radio value="b">B</radio></radio-group>"#,
+                vec!["radio-group: static", "value: b", "value: a", "A", "B"],
+            ),
+            (
+                r#"<carousel activeIndex={1}><carousel-item>First</carousel-item><carousel-item>Second</carousel-item></carousel>"#,
+                vec!["carousel: static", "activeIndex: 1", "First", "Second"],
+            ),
+            (
+                r#"<table><table-section header><table-row><table-cell colSpan={2}>Heading</table-cell></table-row><table-row><table-cell>Subhead</table-cell></table-row></table-section><table-row label="Record" labelColSpan={2}><table-cell rowSpan={2}>Value</table-cell></table-row></table>"#,
+                vec![
+                    "grouped records",
+                    "header: true",
+                    "colSpan: 2",
+                    "Heading",
+                    "Subhead",
+                    "label: Record",
+                    "labelColSpan: 2",
+                    "rowSpan: 2",
+                    "Value",
+                ],
+            ),
+            ("<MemoryCite />", vec!["Memory reference unavailable"]),
+        ] {
+            let out = project(input);
+            for part in expected {
+                assert!(out.contains(part), "missing {part}: {out}");
+            }
+        }
+    }
+
+    #[test]
+    fn malformed_chart_metadata_is_disclosed() {
+        let project = super::super::render_for_codex_tui;
+        let out = project(
+            r#"<Chart content={{"nameKey":"name","valueKey":"count","series":"broken","data":[{"name":"A","count":42}]}}/>"#,
+        );
+        assert!(
+            out.contains("unavailable") && out.contains("broken") && out.contains("42"),
+            "{out}"
+        );
+    }
+
     #[test]
     fn row_grid_and_badge() {
         let row = e(

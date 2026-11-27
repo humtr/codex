@@ -2192,6 +2192,147 @@ wire_api = "responses"
     }
 
     #[tokio::test]
+    async fn failed_projection_persists_remote_settlement_and_rejects_replay() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir =
+            std::env::temp_dir().join(format!("cgp-projection-{}", config::random_hex(6).unwrap()));
+        std::fs::create_dir(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let threads = Arc::new(crate::responses::ResponseThreadMap::open(&dir).unwrap());
+        let driver = MockDriver::new(json!({
+            "state":"settled", "chat_id":"conv-revised", "account_id":"acct-revised",
+            "remote_head":"head-revised",
+            "items":[{"id":"a","kind":"answer","text":"Revised"}],
+            "test_delay_ms":5,
+            "test_snapshots":[
+                {"item_id":"a","kind":"answer","text":"Original","committed":false,"streamable":true},
+                {"item_id":"a","kind":"answer","text":"Revised","committed":true}
+            ]
+        }));
+        let history = config::HistoryConfig {
+            project_id: Some("g-p-revised".into()),
+            ..Default::default()
+        };
+        let body = json!({"stream":true,"input":[{"role":"user","content":"Submit once"}]});
+        let response = crate::responses::handle_responses(
+            driver.clone(),
+            &Default::default(),
+            &history,
+            threads.clone(),
+            Some("projection-fixture".into()),
+            None,
+            body.clone(),
+        )
+        .await
+        .unwrap();
+        let bytes = to_bytes(response.into_body(), 65536).await.unwrap();
+        let events: Vec<Value> = std::str::from_utf8(&bytes)
+            .unwrap()
+            .lines()
+            .filter_map(|line| line.strip_prefix("data: "))
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert!(events.iter().any(|e| e["delta"] == "Original"));
+        assert!(!events.iter().any(|e| e["type"] == "response.completed"));
+        let failed: Vec<_> = events
+            .iter()
+            .filter(|e| e["type"] == "response.failed")
+            .collect();
+        assert_eq!(failed.len(), 1);
+        assert_eq!(
+            failed[0]["response"]["error"]["code"],
+            "chatgpt_output_prefix_inconsistent"
+        );
+        let failed_id = failed[0]["response"]["id"].as_str().unwrap();
+        let entry = threads.get("session:projection-fixture").unwrap();
+        assert_eq!(entry.chat_id, "conv-revised");
+        assert_eq!(entry.account_id.as_deref(), Some("acct-revised"));
+        assert_eq!(entry.project_id.as_deref(), Some("g-p-revised"));
+        let binding = entry.native.unwrap();
+        assert_eq!(binding.response_id, failed_id);
+        assert_eq!(binding.remote_head.as_deref(), Some("head-revised"));
+        assert!(binding.output_unavailable);
+        assert_eq!(entry.input_len, binding.request_input_len);
+        assert_eq!(entry.prefix_sha256, binding.request_input_sha256);
+        drop(threads);
+        let threads = Arc::new(crate::responses::ResponseThreadMap::open(&dir).unwrap());
+        assert!(
+            threads
+                .get("session:projection-fixture")
+                .unwrap()
+                .native
+                .unwrap()
+                .output_unavailable
+        );
+        for (request, code) in [
+            (body.clone(), "response_input_already_sent"),
+            (
+                json!({"stream":false,"input":"Changed context"}),
+                "native_reconciliation_required",
+            ),
+            (
+                json!({"stream":false,"previous_response_id":failed_id,"input":"Retry by failed ID"}),
+                "native_reconciliation_required",
+            ),
+        ] {
+            *driver.last_send.lock().unwrap() = None;
+            let err = crate::responses::handle_responses(
+                driver.clone(),
+                &Default::default(),
+                &history,
+                threads.clone(),
+                Some("projection-fixture".into()),
+                None,
+                request,
+            )
+            .await
+            .expect_err("must reject before dispatch");
+            assert_eq!(err.code, code);
+            assert!(driver.last_send.lock().unwrap().is_none());
+        }
+        let mut next = body;
+        next["stream"] = json!(false);
+        next["input"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"role":"user","content":"Continue after inspecting remote turn"}));
+        let response = crate::responses::handle_responses(
+            driver.clone(),
+            &Default::default(),
+            &history,
+            threads.clone(),
+            Some("projection-fixture".into()),
+            None,
+            next,
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let sent = driver.last_send.lock().unwrap().clone().unwrap();
+        assert_eq!(sent["chat_id"], "conv-revised");
+        assert_eq!(sent["expected_account_id"], "acct-revised");
+        assert_eq!(sent["project_id"], "g-p-revised");
+        assert_eq!(
+            sent["native_candidate"]["parent_message_id"],
+            "head-revised"
+        );
+        assert_eq!(
+            sent["native_candidate"]["messages"][0]["parts"][0],
+            "Continue after inspecting remote turn"
+        );
+        assert!(
+            !threads
+                .get("session:projection-fixture")
+                .unwrap()
+                .native
+                .unwrap()
+                .output_unavailable
+        );
+        drop(threads);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
     async fn machine_output_preserves_bytes_without_diverting_session() {
         let raw = "{\n\"summary\":\"<badge>literal</badge> {item.value}\", \"next_action\":null}";
         let driver = MockDriver::new(json!({
@@ -2213,6 +2354,11 @@ wire_api = "responses"
         };
         for (metadata, format) in [
             (json!({"request_kind":"compaction"}), Value::Null),
+            (
+                json!({"request_kind":"turn","thread_source":" Compaction "}),
+                Value::Null,
+            ),
+            (json!({"turn_trigger":"context_compaction"}), Value::Null),
             (
                 json!({"request_kind":"turn"}),
                 json!({"type":"json_schema","name":"fixture","schema":{"type":"object"}}),

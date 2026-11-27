@@ -67,6 +67,7 @@ fn project(input: &str, streaming: bool) -> String {
             }
         }
     }
+    out.retain(|c| !c.is_control() || matches!(c, '\n' | '\t'));
     out
 }
 
@@ -141,8 +142,18 @@ const TAGS: &[&str] = &[
 fn ident(c: char) -> bool {
     c.is_ascii_alphanumeric() || matches!(c, '_' | '$' | '-')
 }
+fn local_ident(s: &str) -> bool {
+    s.starts_with(|c: char| c.is_ascii_alphabetic() || matches!(c, '_' | '$'))
+        && s.chars().all(|c| ident(c) && c != '-')
+}
+
 fn name_len(s: &str) -> usize {
     s.bytes().take_while(|b| ident(*b as char)).count()
+}
+fn local_name_len(s: &str) -> usize {
+    s.bytes()
+        .take_while(|b| ident(*b as char) && *b != b'-')
+        .count()
 }
 
 // Quotes and nested delimiters are shared by attributes, literals and directives.
@@ -254,14 +265,37 @@ fn eval(s: &str, locals: &Locals, depth: usize) -> Value {
             return Value::String(v);
         }
     }
-    if !s.is_empty() && s.parse::<f64>().is_ok_and(f64::is_finite) {
+    // Restricted decimal grammar: no legacy octal, leading plus or nonfinite values.
+    let decimal = s.strip_prefix('-').unwrap_or(s);
+    let integer = decimal.split(['.', 'e', 'E']).next().unwrap_or("");
+    if !integer.is_empty()
+        && integer.bytes().all(|b| b.is_ascii_digit())
+        && (integer.len() == 1 || !integer.starts_with('0'))
+        && !decimal.ends_with('.')
+        && s.parse::<f64>().is_ok_and(f64::is_finite)
+    {
         return Value::Number(s.to_owned());
     }
+    if let Some(raw) = s
+        .strip_prefix("String.raw`")
+        .and_then(|v| v.strip_suffix('`'))
+    {
+        if !raw.contains('`') && !raw.contains("${") {
+            return Value::String(raw.to_owned());
+        }
+        return unknown();
+    }
     if s.starts_with('[') && balanced(s) == Some(s.len()) {
+        let mut parts = split_top(&s[1..s.len() - 1], ',');
+        if parts.last().is_some_and(|p| p.trim().is_empty()) {
+            parts.pop();
+        }
+        if parts.iter().any(|p| p.trim().is_empty()) {
+            return unknown();
+        }
         return Value::Array(
-            split_top(&s[1..s.len() - 1], ',')
+            parts
                 .into_iter()
-                .filter(|p| !p.trim().is_empty())
                 .map(|p| eval(p, locals, depth + 1))
                 .collect(),
         );
@@ -280,21 +314,19 @@ fn eval(s: &str, locals: &Locals, depth: usize) -> Value {
             let key = quoted(key)
                 .filter(|(n, _)| *n == key.len())
                 .map(|(_, v)| v)
-                .or_else(|| (!key.is_empty() && key.chars().all(ident)).then(|| key.to_owned()));
+                .or_else(|| local_ident(key).then(|| key.to_owned()));
             let Some(key) = key else {
                 return unknown();
             };
+            if fields.iter().any(|(k, _)| k == &key) {
+                return unknown();
+            }
             fields.push((key, eval(pair[1], locals, depth + 1)));
         }
         return Value::Object(fields);
     }
     if s.starts_with('(') && balanced(s) == Some(s.len()) {
         return eval(&s[1..s.len() - 1], locals, depth + 1);
-    }
-    if let Some(rhs) = s.strip_prefix('!') {
-        if let Value::Bool(b) = eval(rhs, locals, depth + 1) {
-            return Value::Bool(!b);
-        }
     }
     // Only a single unambiguous top-level operation is interpreted. Do not
     // approximate JS coercion, precedence, associativity or object identity.
@@ -353,13 +385,18 @@ fn eval(s: &str, locals: &Locals, depth: usize) -> Value {
         }
         return unknown();
     }
-    let n = name_len(s);
+    if let Some(rhs) = s.strip_prefix('!') {
+        if let Value::Bool(b) = eval(rhs, locals, depth + 1) {
+            return Value::Bool(!b);
+        }
+    }
+    let n = local_name_len(s);
     if let Some((_, value)) = locals.iter().rev().find(|(key, _)| key == &s[..n]) {
         let mut value = value.clone();
         let mut tail = &s[n..];
         while !tail.is_empty() {
             if let Some(rest) = tail.strip_prefix('.') {
-                let n = name_len(rest);
+                let n = local_name_len(rest);
                 value = match value {
                     Value::Object(fields) => fields
                         .into_iter()
@@ -396,10 +433,7 @@ fn value_text(v: Value) -> String {
     match v {
         Value::Null => "null".into(),
         Value::Bool(v) => v.to_string(),
-        Value::Number(v) | Value::String(v) => v
-            .chars()
-            .filter(|c| !c.is_control() || matches!(c, '\n' | '\t'))
-            .collect(),
+        Value::Number(v) | Value::String(v) => v,
         Value::Unknown(v) => format!("[Unavailable: {v}]"),
         Value::Array(v) => format!(
             "[{}]",
@@ -438,12 +472,32 @@ fn dollar_span(s: &str) -> Option<usize> {
     if run == 1 && s[run..].starts_with(char::is_whitespace) {
         return Some(run);
     }
+    // Like the upstream renderer, distinguish digit-led currency from
+    // formulas using explicit math operators. Keep a partial next token
+    // buffered until it is clear that it is prose.
+    let mut currency = run == 1 && s[run..].starts_with(|c: char| c.is_ascii_digit());
+    let math_operator = |c: char| {
+        matches!(
+            c,
+            '\\' | '^' | '_' | '=' | '+' | '-' | '*' | '/' | '<' | '>'
+        )
+    };
     let mut i = run;
     while i < s.len() {
         let c = s[i..].chars().next()?;
         if run == 1 && c == '\n' {
             return Some(run);
         }
+        if currency && c.is_whitespace() {
+            let next = s[i..]
+                .trim_start_matches(|ch: char| ch != '\n' && ch.is_whitespace())
+                .chars()
+                .next()?;
+            if !math_operator(next) && next != '$' {
+                return Some(run);
+            }
+        }
+        currency &= !math_operator(c);
         if c == '$' && !escaped_at(s, i) {
             let close = s[i..].bytes().take_while(|&b| b == b'$').count();
             if close == run && i + close < s.len() {
@@ -660,7 +714,22 @@ impl<'a> Parser<'a> {
                 }
                 return None;
             }
-            if context != Context::Prose && trimmed.starts_with('|') {
+            // Blank-line-separated indentation is Markdown code, including
+            // continuation lines. Immediate layout padding remains supported.
+            let previous_blank = context != Context::Prose
+                && indent >= 4
+                && self.source[..self.pos]
+                    .strip_suffix('\n')
+                    .is_some_and(|before| {
+                        before
+                            .rsplit('\n')
+                            .find(|line| {
+                                line.trim().is_empty()
+                                    || !(line.starts_with("    ") || line.starts_with('\t'))
+                            })
+                            .is_some_and(|line| line.trim().is_empty())
+                    });
+            if context != Context::Prose && !previous_blank && trimmed.starts_with('|') {
                 if let Some((len, table)) = layout_pipe_table(s) {
                     self.pos += len;
                     return Some(vec![Node::Text(table)]);
@@ -672,6 +741,7 @@ impl<'a> Parser<'a> {
                     (n > 0 && tag_boundary(&t[n..])).then_some(&t[..n])
                 });
                 let explicit_layout = context != Context::Prose
+                    && !previous_blank
                     && tag.is_some_and(|tag| {
                         TAGS.contains(&tag) || context == Context::Svg && svg_tag(tag)
                     });
@@ -749,11 +819,6 @@ impl<'a> Parser<'a> {
                     return None;
                 }
                 if tag_boundary(after) {
-                    if !closing
-                        && (TAGS.contains(&name) || context == Context::Svg && svg_tag(name))
-                    {
-                        return self.element(name, n, depth, context);
-                    }
                     let end = tag_end(s)?;
                     let adjacent = self.source[..self.pos]
                         .chars()
@@ -761,6 +826,22 @@ impl<'a> Parser<'a> {
                         .is_some_and(|ch| {
                             ch.is_alphanumeric() || matches!(ch, '_' | '>' | ']' | ')')
                         });
+                    // Attribute-free identifier-adjacent tags are generic-like.
+                    // Ordinary separated prose and attributed DIL remain eligible.
+                    let generic = adjacent
+                        && after.starts_with('>')
+                        && !closing
+                        && self.source[..self.pos]
+                            .chars()
+                            .next_back()
+                            .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_');
+                    if !closing
+                        && !generic
+                        && !(name == "input" && !s[..end - 1].trim_end().ends_with('/'))
+                        && (TAGS.contains(&name) || context == Context::Svg && svg_tag(name))
+                    {
+                        return self.element(name, n, depth, context);
+                    }
                     let inner = &s[prefix..end - 1];
                     let autolink = !inner.contains(char::is_whitespace)
                         && (inner.contains("://") || inner.contains('@'));
@@ -797,7 +878,7 @@ impl<'a> Parser<'a> {
                     if let Some((key, val)) = decl.split_once('=') {
                         let key = key.trim();
                         let val = val.trim().trim_end_matches(';');
-                        if !key.is_empty() && key.chars().all(ident) {
+                        if local_ident(key) {
                             self.locals.push((key.into(), eval(val, &self.locals, 0)));
                             return Some(vec![]);
                         }
@@ -806,7 +887,9 @@ impl<'a> Parser<'a> {
                             val.strip_prefix("DIL.useState(")
                                 .and_then(|v| v.strip_suffix(')')),
                         ) {
-                            if let Some(k) = keys.split(',').next() {
+                            if let Some(k) =
+                                keys.split(',').next().filter(|k| local_ident(k.trim()))
+                            {
                                 self.locals
                                     .push((k.trim().into(), eval(initial, &self.locals, 0)));
                                 return Some(vec![]);
@@ -819,7 +902,7 @@ impl<'a> Parser<'a> {
                 ))]);
             }
             let v = eval(expr, &self.locals, 0);
-            let root = name_len(expr);
+            let root = local_name_len(expr);
             let local = root > 0 && self.locals.iter().any(|(key, _)| key == &expr[..root]);
             let member = root > 0
                 && expr.starts_with(|ch: char| ch.is_ascii_alphabetic() || ch == '_')
@@ -1085,6 +1168,76 @@ mod parser_tests {
         }
     }
     #[test]
+    fn corrective_semantics_and_prefixes() {
+        let cases = [
+            (
+                "ordinary $5 and <bold>later</bold>",
+                "ordinary $5 and **later**",
+            ),
+            ("$5$ and <bold>later</bold>", "$5$ and **later**"),
+            (
+                "$2 + {x.y}$ and <bold>later</bold>",
+                "$2 + {x.y}$ and **later**",
+            ),
+            ("<col>Column</col> prose", "\nColumn\n prose"),
+            ("Vec<text> value </text>", "Vec<text> value </text>"),
+            ("normal prose <bold>later</bold>", "normal prose **later**"),
+            (
+                "<input type=\"text\" value=\"plain\"> following prose",
+                "<input type=\"text\" value=\"plain\"> following prose",
+            ),
+            (
+                "<math value={String.raw`\\frac{1}{2}`} />",
+                "$\\frac{1}{2}$",
+            ),
+            ("{#if !false === 0}WRONG{:else}RIGHT{/if}", "RIGHT"),
+            ("plain\x1b]0;test\x07", "plain]0;test"),
+            ("<escape>\x1b]0;test\x07</escape>", "]0;test"),
+        ];
+        for (raw, expected) in cases {
+            assert_eq!(render_for_codex_tui(raw), expected, "{raw:?}");
+            assert_eq!(render_stream_prefix(raw), expected, "{raw:?}");
+            let mut previous = String::new();
+            for i in raw
+                .char_indices()
+                .map(|(i, _)| i)
+                .chain(std::iter::once(raw.len()))
+            {
+                let next = render_stream_prefix(&raw[..i]);
+                assert!(
+                    next.starts_with(&previous) && expected.starts_with(&next),
+                    "{raw:?} at {i}"
+                );
+                previous = next;
+            }
+        }
+        let raw = "<box>\n\n    <bold>literal</bold>\n    <text>also literal</text>\n</box>";
+        let out = render_for_codex_tui(raw);
+        assert!(
+            out.contains("    <bold>literal</bold>\n    <text>also literal</text>"),
+            "{out:?}"
+        );
+        for (i, _) in raw.char_indices() {
+            assert!(out.starts_with(&render_stream_prefix(&raw[..i])));
+        }
+        let locals = vec![];
+        for raw in ["[1,,3]", "{x:1,x:2}", "01", "+1", "1.", "String.raw`a${x}`"] {
+            assert!(
+                matches!(eval(raw, &locals, 0), Value::Unknown(_)),
+                "{raw:?}"
+            );
+        }
+        assert!(!local_ident("a-b"));
+        assert_eq!(
+            eval("[1,2,]", &locals, 0),
+            Value::Array(vec![Value::Number("1".into()), Value::Number("2".into())])
+        );
+        assert_eq!(
+            render_for_codex_tui("<bold>unfinished\x1b\x07"),
+            "<bold>unfinished"
+        );
+    }
+    #[test]
     fn static_values() {
         assert_eq!(render_for_codex_tui("{@body const x = {n: 2}}{x.n}"), "2");
         assert_eq!(render_for_codex_tui("{#if true}yes{:else}no{/if}"), "yes");
@@ -1174,7 +1327,7 @@ GitHub의 <Link url="https://github.com/humtr/codex" title="humtr/codex"/> 저�
         assert!(rendered.contains("> **[Diagram]** AppHost · Turn Assembly"));
         assert!(rendered.contains("---"));
         assert!(rendered.contains("- [x] 검증 완료"));
-        assert!(rendered.contains("Done!"));
+        assert!(rendered.contains("Done[Memory reference unavailable]!"));
         assert!(!rendered.contains("{@body"));
         assert!(!rendered.contains("<svg"));
         assert!(!rendered.contains("<slider"));
