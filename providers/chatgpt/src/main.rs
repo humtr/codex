@@ -4,6 +4,7 @@
 //! `codex -p chatgpt`) + authenticated local `/control/*` (for `@TermuxChatGPT`).
 //! Zero DDPE, zero MCP server, zero `shared_server`, zero Wrapper coupling.
 
+mod catalog;
 mod cdp;
 mod config;
 mod control;
@@ -13,7 +14,10 @@ mod host;
 mod presentation;
 mod responses;
 mod server;
+mod session;
+mod stream;
 mod supervisor;
+mod turn;
 mod viewer;
 
 use crate::config::{load_or_create_control_token, user_home, ProviderConfig};
@@ -200,7 +204,7 @@ async fn run() -> Result<()> {
 
             let state_dir = cfg.state_dir(&home);
             let catalog_path = state_dir.join("model-catalog.json");
-            let parallel_tool_calls = true;
+            let parallel_tool_calls = false;
             if !catalog_path.exists() {
                 let fallback = crate::responses::build_codex_model_catalog(
                     &crate::responses::fallback_catalog_models(&cfg.model),
@@ -293,6 +297,7 @@ async fn run() -> Result<()> {
                 driver_dyn,
                 cfg.model,
                 cfg.history,
+                cfg.mcp,
                 token,
                 viewer_slot,
                 threads,
@@ -775,18 +780,19 @@ mod tests {
         .unwrap();
         assert!(sse.contains("event: response.created\n"));
         assert!(sse.contains("event: response.output_text.delta\n"));
-        assert!(sse.contains("event: response.function_call_arguments.done\n"));
+        assert!(!sse.contains("event: response.function_call_arguments.done\n"));
         assert!(sse.contains("event: response.completed\n"));
 
-        // Verify local_function_signatures passed to page driver via structured native_candidate without prompt injection!
+        // Verify MCP single-turn dispatch omits local_function_signatures and appends MCP bridge guidance.
         let sent = driver.last_send.lock().unwrap().clone().unwrap();
-        assert_eq!(sent["local_function_signatures"][0]["name"], "exec_command");
+        assert!(sent.get("local_function_signatures").is_none());
         let msgs = sent["native_candidate"]["messages"].as_array().unwrap();
         assert_eq!(msgs[0]["role"], "user");
-        assert!(!msgs[0]["parts"][0]
-            .as_str()
-            .unwrap()
-            .contains("[Codex Local Tool Boundary]"));
+        assert_eq!(msgs[1]["role"], "developer");
+        assert_eq!(msgs[1]["one_turn"], true);
+        let dev = msgs[1]["parts"][0].as_str().unwrap();
+        assert!(dev.contains("Be concise"));
+        assert!(dev.contains("[Termux MCP Single-Turn Execution Mode]"));
     }
 
     #[test]
@@ -797,31 +803,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn responses_extracts_codex_additional_tools_emits_custom_and_namespaced_calls_and_tracks_delta_sessions(
-    ) {
+    async fn responses_mcp_single_turn_tracks_delta_sessions_and_compaction_handoff() {
         let driver = MockDriver::new(json!({
             "state": "settled",
             "chat_id": "conv-orch-1",
             "account_id": "acct-orch-1",
             "remote_head": "head-orch-1",
-            "assistant_text": "",
-            "tool_calls": [
-                {
-                    "id": "call_exec_1",
-                    "native_message_id": "exec_1",
-                    "native_recipient": "local.exec",
-                    "name": "exec",
-                    "arguments": "{\"input\":\"echo hi\"}"
-                },
-                {
-                    "id": "call_spawn_1",
-                    "native_message_id": "spawn_1",
-                    "native_recipient": "local.spawn_agent",
-                    "namespace": "collaboration",
-                    "name": "spawn_agent",
-                    "arguments": "{\"task_name\":\"worker\",\"message\":\"compute\"}"
-                }
-            ]
+            "assistant_text": "All host commands completed in one turn via TermuxShell."
         }));
         let history = config::HistoryConfig {
             project_id: Some("g-p-test-proj".to_owned()),
@@ -836,32 +824,13 @@ mod tests {
         );
 
         let r1_body = json!({
-            "model": "gpt-6-sol-wm",
+            "model": "gpt-6-2",
             "stream": true,
             "prompt_cache_key": "sess-orch-1",
-            "reasoning": {"effort": "xhigh"},
+            "reasoning": {"effort": "high"},
             "input": [
-                {
-                    "type": "additional_tools",
-                    "role": "developer",
-                    "tools": [
-                        {
-                            "type": "namespace",
-                            "name": "functions",
-                            "tools": [
-                                {"type": "custom", "name": "exec", "description": "Run shell command"}
-                            ]
-                        },
-                        {
-                            "type": "namespace",
-                            "name": "collaboration",
-                            "tools": [
-                                {"type": "function", "name": "spawn_agent", "description": "Spawn worker", "parameters": {"type": "object"}}
-                            ]
-                        }
-                    ]
-                },
-                {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Delegate work"}]}
+                {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "<environment_context><cwd>/home/u/prj/codex</cwd></environment_context>"}]},
+                {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Inspect the repo"}]}
             ]
         });
         let resp1 = oneshot(
@@ -883,55 +852,27 @@ mod tests {
                 .to_vec(),
         )
         .unwrap();
-        assert!(sse1.contains("event: response.custom_tool_call_input.done\n"));
-        assert!(sse1.contains("\"type\":\"custom_tool_call\""));
-        assert!(sse1.contains("\"input\":\"echo hi\""));
-        assert!(sse1.contains("\"name\":\"spawn_agent\""));
-        assert!(sse1.contains("\"namespace\":\"collaboration\""));
+        assert!(sse1.contains("All host commands completed in one turn via TermuxShell."));
 
         let sent1 = driver.last_send.lock().unwrap().clone().unwrap();
         assert_eq!(sent1["project_id"], "g-p-test-proj");
-        assert_eq!(sent1["model"], "gpt-6-sol-wm");
-        assert_eq!(sent1["reasoning_effort"], "xhigh");
-        assert_eq!(sent1["native_candidate"]["messages"][0]["role"], "user");
-        assert_eq!(
-            sent1["local_function_signatures"].as_array().unwrap().len(),
-            2
-        );
+        assert_eq!(sent1["reasoning_effort"], "high");
+        assert!(sent1.get("local_function_signatures").is_none());
+        let msgs1 = sent1["native_candidate"]["messages"].as_array().unwrap();
+        assert_eq!(msgs1[0]["hidden"], true);
+        assert_eq!(msgs1[1]["role"], "user");
+        assert_eq!(msgs1[2]["role"], "developer");
+        assert!(msgs1[2]["parts"][0]
+            .as_str()
+            .unwrap()
+            .contains("/home/u/prj/codex"));
 
-        // Round 2 with same thread-id must reuse conv-orch-1 and send structured tool outputs + agent_message delta!
+        // Round 2 with same thread-id reuses conv-orch-1 and forwards only the new user delta.
         let mut r2_body = r1_body.clone();
         r2_body["input"].as_array_mut().unwrap().push(json!({
-            "type": "custom_tool_call",
-            "call_id": "call_exec_1",
-            "name": "exec",
-            "input": "echo hi"
-        }));
-        r2_body["input"].as_array_mut().unwrap().push(json!({
-            "type": "function_call",
-            "call_id": "call_spawn_1",
-            "name": "spawn_agent",
-            "namespace": "collaboration",
-            "arguments": "{\"task_name\":\"worker\",\"message\":\"compute\"}"
-        }));
-        r2_body["input"].as_array_mut().unwrap().push(json!({
-            "type": "custom_tool_call_output",
-            "call_id": "call_exec_1",
-            "output": "hi"
-        }));
-        r2_body["input"].as_array_mut().unwrap().push(json!({
-            "type": "function_call_output",
-            "call_id": "call_spawn_1",
-            "output": "WORKER_DONE=42"
-        }));
-        r2_body["input"].as_array_mut().unwrap().push(json!({
-            "type": "agent_message",
-            "author": "/root",
-            "recipient": "/root/worker",
-            "content": [
-                {"type": "input_text", "text": "Message Type: NEW_TASK\nPayload:\n"},
-                {"type": "encrypted_content", "encrypted_content": "READ_SECRET_TASK_99"}
-            ]
+            "type": "message",
+            "role": "user",
+            "content": [{"type": "input_text", "text": "Now run tests"}]
         }));
         let resp2 = oneshot(
             router.clone(),
@@ -948,26 +889,16 @@ mod tests {
         let sent2 = driver.last_send.lock().unwrap().clone().unwrap();
         assert_eq!(sent2["chat_id"], "conv-orch-1");
         let msgs2 = sent2["native_candidate"]["messages"].as_array().unwrap();
-        assert_eq!(msgs2.len(), 3);
-        assert_eq!(msgs2[0]["role"], "tool");
-        assert_eq!(msgs2[1]["role"], "tool");
-        assert_eq!(msgs2[1]["parts"][0], "WORKER_DONE=42");
-        assert!(msgs2[2]["parts"][0]
-            .as_str()
-            .unwrap()
-            .contains("READ_SECRET_TASK_99"));
+        assert_eq!(msgs2[0]["role"], "user");
+        assert_eq!(msgs2[0]["parts"][0], "Now run tests");
         assert!(!msgs2.iter().any(|m| m["parts"][0]
             .as_str()
             .unwrap_or("")
-            .contains("Delegate work")));
-        assert_eq!(
-            sent2["local_function_signatures"].as_array().unwrap().len(),
-            2
-        );
+            .contains("Inspect the repo")));
 
-        // Keep round 2's cached chat and compact input so changed prefix selects a fresh chat.
+        // Compacted input without previous_response_id starts a fresh ChatGPT chat cleanly.
         let r3_body = json!({
-            "model": "gpt-6-sol-wm",
+            "model": "gpt-6-2",
             "stream": true,
             "prompt_cache_key": "sess-orch-1",
             "input": [
@@ -1604,6 +1535,7 @@ wire_api = "responses"
             driver,
             model_cfg,
             config::HistoryConfig::default(),
+            config::McpConfig::default(),
             token.to_owned(),
             Arc::new(RwLock::new(None)),
             crate::responses::ResponseThreadMap::default(),
@@ -1886,7 +1818,10 @@ wire_api = "responses"
             .iter()
             .filter(|ev| ev["type"] == "response.function_call_arguments.done")
             .count();
-        assert_eq!(fc_count, 1, "tool call must be emitted exactly once");
+        assert_eq!(
+            fc_count, 0,
+            "MCP single-turn mode never emits client function_calls"
+        );
 
         // Compare stream=true output vs stream=false output structurally (modulo unique item IDs).
         let json_resp = crate::responses::handle_responses(
@@ -2091,7 +2026,7 @@ wire_api = "responses"
             assert_eq!(sent["temporary"], true);
             assert_eq!(sent["model"], "gpt-6-2-instant");
             assert!(sent["reasoning_effort"].is_null());
-            assert_eq!(sent["local_function_signatures"], json!([]));
+            assert!(sent.get("local_function_signatures").is_none());
             let _ = to_bytes(resp_mem.into_body(), 65536).await.unwrap();
         }
 

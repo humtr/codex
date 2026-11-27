@@ -274,6 +274,12 @@ fn profile_lease(profile: &Path, control: &UnixStream, signals: &OwnedFd) -> Res
     }
 }
 
+fn pid_looks_like_chatgpt_host(pid: i32) -> Option<bool> {
+    let raw = fs::read(format!("/proc/{pid}/cmdline")).ok()?;
+    let lower = String::from_utf8_lossy(&raw).to_ascii_lowercase();
+    Some(lower.contains("chatgpt") || lower.contains("electron") || lower.contains("proot"))
+}
+
 fn check_singleton(chromium: &Path) -> Result<()> {
     let target = match fs::read_link(chromium.join("SingletonLock")) {
         Ok(target) => target,
@@ -286,10 +292,14 @@ fn check_singleton(chromium: &Path) -> Result<()> {
         .and_then(|(_, s)| s.parse::<i32>().ok())
         .filter(|&pid| pid > 1);
     if let Some(pid) = pid {
-        if unsafe { libc::kill(pid, 0) } < 0
-            && io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
-        {
-            // Chromium owns stale lock, cookie and socket recovery.
+        if unsafe { libc::kill(pid, 0) } < 0 {
+            let errno = io::Error::last_os_error().raw_os_error();
+            // ESRCH: dead PID. EPERM: PID recycled to another UID (cannot be our Electron).
+            if matches!(errno, Some(libc::ESRCH | libc::EPERM)) {
+                return Ok(());
+            }
+        } else if pid_looks_like_chatgpt_host(pid) == Some(false) {
+            // PID recycled to an unrelated same-UID process (e.g. Termux shell/daemon).
             return Ok(());
         }
     }
@@ -936,4 +946,41 @@ fn write_xauthority(path: &Path, display: u16) -> Result<()> {
         .open(path)
         .and_then(|mut f| f.write_all(&bytes))
         .map_err(|e| ProviderError::internal("host_authority_failed", e.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::symlink;
+
+    #[test]
+    fn check_singleton_allows_missing_dead_and_non_chatgpt_recycled_pids() {
+        let dir = std::env::temp_dir().join(format!(
+            "cgp-singleton-test-{}",
+            random_hex(6).expect("random hex")
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        // Missing SingletonLock is fine.
+        assert!(check_singleton(&dir).is_ok());
+
+        // Dead PID is treated as stale.
+        let lock = dir.join("SingletonLock");
+        symlink("localhost-9999999", &lock).unwrap();
+        assert!(check_singleton(&dir).is_ok());
+        let _ = fs::remove_file(&lock);
+
+        // Live non-ChatGPT PID (this test binary's own cmdline contains `chatgpt_provider`,
+        // so test with a short-lived `sleep` child whose cmdline is clearly not ChatGPT).
+        let mut child = Command::new("sleep").arg("10").spawn().unwrap();
+        symlink(format!("localhost-{}", child.id()), &lock).unwrap();
+        let res = check_singleton(&dir);
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(
+            res.is_ok(),
+            "recycled non-ChatGPT PID should be stale: {res:?}"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

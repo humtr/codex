@@ -827,237 +827,53 @@
 
   // Avoid ChatGPT backend name collisions with built-in container/runtime `exec`
   // and disambiguate same-named tools across namespaces without dropping any tool.
-  function allocateWireLocalFunctionName(rawName, namespace, usedWireNames, reservedRawNames) {
-    const sanitize = (s) => s.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64);
-    let base = rawName;
-    if (rawName === "exec" && !namespace) {
-      base = reservedRawNames.has("codex_exec") ? "codex_local_exec" : "codex_exec";
-    } else if (usedWireNames.has(rawName) && namespace) {
-      base = sanitize(`${namespace}_${rawName}`);
+  // Extract a concise, secret-free progress label for server-side remote MCP
+  // tool calls and completions observed in CompletionClient `onDecodedEvent`.
+  function formatMcpToolName(raw) {
+    if (typeof raw !== "string") return "";
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed === "all") return "";
+    const segments = trimmed.split(/[./:]/).filter(Boolean);
+    if (segments.length >= 2) {
+      const tail = segments[segments.length - 1];
+      const server = segments.find((s) => /^Termux/i.test(s)) || segments[segments.length - 2];
+      if (server && server !== tail && !/^asdk_app_/i.test(server)) {
+        return `${server}.${tail}`.slice(0, 96);
+      }
+      return tail.slice(0, 96);
     }
-    let candidate = sanitize(base);
-    let suffix = 2;
-    while (!candidate || usedWireNames.has(candidate)) {
-      const tag = `_${suffix++}`;
-      candidate = `${sanitize(base).slice(0, Math.max(1, 64 - tag.length))}${tag}`;
-    }
-    usedWireNames.add(candidate);
-    return candidate;
+    return trimmed.slice(0, 96);
   }
 
-  function resolveJsonSchemaType(pdef) {
-    if (!pdef || typeof pdef !== "object") return "string";
-    if (typeof pdef.type === "string") return pdef.type;
-    if (Array.isArray(pdef.type)) {
-      const nonNull = pdef.type.find((t) => typeof t === "string" && t !== "null");
-      if (nonNull) return nonNull;
-    }
-    if (Array.isArray(pdef.anyOf)) {
-      for (const variant of pdef.anyOf) {
-        const vt = resolveJsonSchemaType(variant);
-        if (vt && vt !== "null") return vt;
-      }
-    }
-    if (pdef.properties && typeof pdef.properties === "object") return "object";
-    if (pdef.items && typeof pdef.items === "object") return "array";
-    return "string";
-  }
-
-  function normalizeParamSchema(pdef, fallbackDesc, depth = 0) {
-    const rawType = resolveJsonSchemaType(pdef);
-    const desc = truncate(
-      pdef && typeof pdef.description === "string" && pdef.description.trim()
-        ? pdef.description.trim()
-        : fallbackDesc,
-      160
-    );
-    if (rawType === "integer" || rawType === "number" || rawType === "boolean" || rawType === "string") {
-      const out = { type: rawType, description: desc };
-      if (pdef && Array.isArray(pdef.enum) && pdef.enum.length > 0 && pdef.enum.length <= 32) {
-        out.enum = pdef.enum;
-      }
-      return out;
-    }
-    if (rawType === "array" && depth < 3) {
-      const itemSchema =
-        pdef && pdef.items && typeof pdef.items === "object"
-          ? normalizeParamSchema(pdef.items, "item", depth + 1)
-          : { type: "string", description: "item" };
-      return { type: "array", description: desc, items: itemSchema };
-    }
-    if (rawType === "object" && depth < 3) {
-      const out = { type: "object", description: desc };
-      if (pdef && pdef.properties && typeof pdef.properties === "object") {
-        const nested = {};
-        for (const [k, v] of Object.entries(pdef.properties)) {
-          nested[k] = normalizeParamSchema(v, k, depth + 1);
-        }
-        out.properties = nested;
-        if (Array.isArray(pdef.required)) {
-          out.required = pdef.required.filter((r) => typeof r === "string");
-        }
-      }
-      return out;
-    }
-    return { type: "string", description: desc };
-  }
-
-  function buildNativeLocalFunctionSignatures(sigs) {
-    if (!Array.isArray(sigs) || sigs.length === 0) {
-      return {
-        names: [],
-        signatures: [],
-        wireToOriginal: new Map(),
-        injectedReportWireNames: new Set(),
-        skippedInvalid: 0,
-      };
-    }
-    const names = [];
-    const signatures = [];
-    const wireToOriginal = new Map();
-    const injectedReportWireNames = new Set();
-    const seenKeys = new Set();
-    const usedWireNames = new Set();
-    const reservedRawNames = new Set();
-    let skippedInvalid = 0;
-    for (const s of sigs) {
-      if (s && typeof s.name === "string" && s.name.trim()) {
-        reservedRawNames.add(s.name.trim());
-      }
-    }
-    for (const s of sigs) {
-      if (!s || typeof s.name !== "string") {
-        skippedInvalid += 1;
-        continue;
-      }
-      const rawName = s.name.trim();
-      const ns =
-        typeof s.namespace === "string" && s.namespace.trim() && s.namespace.trim() !== "functions"
-          ? s.namespace.trim()
-          : null;
-      const dedupKey = `${ns || ""}::${rawName}`;
-      if (!rawName || !/^[A-Za-z0-9_-]{1,64}$/.test(rawName)) {
-        skippedInvalid += 1;
-        continue;
-      }
-      if (seenKeys.has(dedupKey)) continue;
-      seenKeys.add(dedupKey);
-      const wireName = allocateWireLocalFunctionName(rawName, ns, usedWireNames, reservedRawNames);
-      wireToOriginal.set(wireName, { name: rawName, namespace: ns });
-      names.push(wireName);
-      const params = [];
-      let hasReportParam = false;
-      if (s.type === "custom") {
-        params.push({
-          name: "input",
-          required: true,
-          type: { type: "string", description: "Raw tool input string" },
-        });
-      } else {
-        if (s.parameters && typeof s.parameters === "object" && s.parameters.properties) {
-          const reqSet = new Set(Array.isArray(s.parameters.required) ? s.parameters.required : []);
-          for (const [pname, pdef] of Object.entries(s.parameters.properties)) {
-            if (pname === "report") hasReportParam = true;
-            params.push({
-              name: pname,
-              required: reqSet.has(pname),
-              type: normalizeParamSchema(pdef, pname, 0),
-            });
-          }
-        }
-        if (!hasReportParam) {
-          injectedReportWireNames.add(wireName);
-          params.push({
-            name: "report",
-            required: false,
-            type: {
-              type: "string",
-              description:
-                "Optional concise public progress update in the user's language before running this tool (never private reasoning).",
-            },
-          });
-        }
-      }
-      signatures.push({
-        name: wireName,
-        description: truncate(
-          typeof s.description === "string" && s.description.trim()
-            ? s.description.trim()
-            : `Invoke local Codex tool ${ns ? `${ns}.${rawName}` : rawName}`,
-          2400
-        ),
-        type: "kwargs",
-        params,
-      });
-    }
-    return { names, signatures, wireToOriginal, injectedReportWireNames, skippedInvalid };
-  }
-
-  function nativeArgumentsSource(content) {
-    if (!content || typeof content !== "object") return null;
-    if (typeof content.text === "string") return content.text.trim();
-    if (!Array.isArray(content.parts)) return null;
-    return content.parts.filter(p => typeof p === "string").join("\n").trim();
-  }
-
-  function extractNativeToolCallFromMessage(
-    msg,
-    declaredNames,
-    wireToOriginal,
-    injectedReportWireNames,
-    structuredCandidate = false
-  ) {
+  function extractMcpProgressLabel(msg) {
     if (!msg || typeof msg !== "object") return null;
-    if (msg.author?.role !== "assistant") return null;
-    const recipient = typeof msg.recipient === "string" ? msg.recipient.trim() : "";
-    if (!recipient || recipient === "all") return null;
-    const stripped = recipient.includes(".") ? recipient.split(".").pop() : recipient;
-    if (declaredNames.size === 0 || (!declaredNames.has(recipient) && !declaredNames.has(stripped))) {
-      return null;
+    const role = msg.author?.role;
+    const sdk = msg.metadata?.chatgpt_sdk;
+    const trm = msg.metadata?.tool_response_metadata;
+    if (role === "assistant") {
+      const recip = typeof msg.recipient === "string" ? msg.recipient.trim() : "";
+      const isMcpRecip =
+        Boolean(recip && recip !== "all") &&
+        (Boolean(sdk) ||
+          /termux|asdk_app_|connector|mcp/i.test(recip) ||
+          recip.includes("/"));
+      if (!isMcpRecip) return null;
+      const name = formatMcpToolName(recip);
+      return name ? `Running ${name}` : null;
     }
-    if (structuredCandidate && (msg.recipient !== recipient || typeof msg.id !== "string" || !/^[A-Za-z0-9_-]{1,256}$/.test(msg.id))) return null;
-    const content = msg.content;
-    const source = nativeArgumentsSource(content);
-    let rawArgs = source;
-    if (rawArgs === null) return null;
-    if (!rawArgs) {
-      // Support legitimate zero-argument native tool calls once finalized (or with empty object content).
-      if (msg.status === "finished_successfully" || msg.end_turn === true) {
-        rawArgs = "{}";
-      } else {
-        return null;
-      }
+    if (role === "tool") {
+      const nameRaw =
+        (typeof msg.author?.name === "string" && msg.author.name.trim()) ||
+        (typeof msg.recipient === "string" && msg.recipient !== "all" && msg.recipient.trim()) ||
+        "";
+      const isMcpTool =
+        Boolean(sdk || trm?.mcp_tool_result || trm?.call_tool_result) ||
+        /termux|asdk_app_|connector|mcp/i.test(nameRaw);
+      if (!isMcpTool) return null;
+      const name = formatMcpToolName(nameRaw) || "MCP tool";
+      return `Completed ${name}`;
     }
-    const matchedWire = declaredNames.has(recipient) ? recipient : stripped;
-    const mapped = wireToOriginal && wireToOriginal.get(matchedWire);
-    if (structuredCandidate && (!mapped ||
-        ![matchedWire, `functions.${matchedWire}`, `local.${matchedWire}`].includes(recipient) ||
-        (Array.isArray(content.parts) && content.parts.some(p => typeof p !== "string")))) return null;
-    const resolvedName = mapped ? mapped.name : matchedWire;
-    const resolvedNs = mapped ? mapped.namespace : null;
-    let report = null;
-    if (injectedReportWireNames && injectedReportWireNames.has(matchedWire)) {
-      try {
-        const parsed = JSON.parse(rawArgs);
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && "report" in parsed) {
-          if (typeof parsed.report === "string" && parsed.report.trim()) {
-            report = parsed.report.trim();
-          }
-          delete parsed.report;
-          rawArgs = JSON.stringify(parsed);
-        }
-      } catch (_) {}
-    }
-    return {
-      id: structuredCandidate ? `call_${msg.id}` : (msg.id ? `call_${String(msg.id).replace(/[^A-Za-z0-9_-]/g, "").slice(0, 24)}` : `call_${newUuid().slice(0, 8)}`),
-      ...(structuredCandidate ? { native_message_id: msg.id } : {}),
-      ...(structuredCandidate ? { native_arguments_source: source } : {}),
-      name: resolvedName,
-      ...(resolvedNs ? { namespace: resolvedNs } : {}),
-      arguments: rawArgs,
-      native_recipient: recipient,
-      ...(report ? { report } : {}),
-    };
+    return null;
   }
 
   async function status() {
@@ -1502,14 +1318,13 @@
       return null;
     }
     const used = new Set();
-    const calls = new Set();
     const messages = [];
     for (const entry of plan.messages) {
       if (!entry || typeof entry.id !== "string" || !/^[A-Za-z0-9_-]{1,256}$/.test(entry.id) || used.has(entry.id) || !Array.isArray(entry.parts) || !entry.parts.length || entry.parts.some(p => typeof p !== "string")) {
         return null;
       }
       used.add(entry.id);
-      if ((entry.role === "user" || entry.role === "developer") && !entry.binding) {
+      if (entry.role === "user" || entry.role === "developer") {
         const meta = {};
         if (entry.role === "developer") {
           meta.is_visually_hidden_from_conversation = true;
@@ -1524,34 +1339,6 @@
           content: { content_type: "text", parts: entry.parts },
           ...(Object.keys(meta).length > 0 ? { metadata: meta } : {}),
         });
-      } else if (entry.role === "tool") {
-        const b = entry.binding;
-        if (!b || typeof b.message_id !== "string" || !b.message_id || typeof b.recipient !== "string" || !b.recipient || calls.has(b.message_id)) {
-          return null;
-        }
-        calls.add(b.message_id);
-        const toolName = b.recipient.split(".").pop();
-        const resultPayload = entry.parts.length === 1 ? entry.parts[0] : entry.parts;
-        messages.push({
-          id: entry.id,
-          author: { metadata: {}, name: toolName, role: "tool" },
-          channel: "commentary",
-          content: {
-            content_type: "code",
-            text: JSON.stringify({
-              call_id: b.message_id,
-              result: resultPayload,
-              tool: toolName,
-            }),
-          },
-          create_time: Date.now() / 1000,
-          end_turn: null,
-          metadata: { is_visually_hidden_from_conversation: true },
-          recipient: "all",
-          status: "finished_successfully",
-          update_time: null,
-          weight: 1,
-        });
       } else {
         return null;
       }
@@ -1559,7 +1346,6 @@
     return messages;
   }
 
-  let nextCompletionAt = 0;
   let retryAfterUntil = 0;
   function noteRetryAfter(source) {
     const retryAfter = extractRetryAfter(source);
@@ -1604,7 +1390,7 @@
           return {
             state: "error",
             error: "generation_already_active",
-            detail: "conversation already has an active response",
+            detail: "conversation already has an active response (cannot send to the currently generating chat; omit chat_id for a new chat or target a different chat_id)",
             lane_id: sameChat.laneId,
             chat_id: chatId,
           };
@@ -1732,17 +1518,6 @@
       }
     }
 
-    const nativeTools = buildNativeLocalFunctionSignatures(opts.local_function_signatures);
-    const declaredToolNames = new Set(nativeTools.names);
-    if (!candidate && Array.isArray(opts.tool_names)) {
-      for (const n of opts.tool_names) {
-        if (typeof n === "string" && n.trim()) {
-          declaredToolNames.add(n.trim());
-          if (n.includes(".")) declaredToolNames.add(n.split(".").pop().trim());
-        }
-      }
-    }
-
     const modelSlug =
       typeof opts.model === "string" && opts.model.trim() ? opts.model.trim() : "auto";
     const thinkingEffort = normalizeThinkingEffort(modelSlug, opts.reasoning_effort);
@@ -1750,11 +1525,11 @@
 
     const userMsgId = newUuid();
     const wireMessages = candidate ? buildStructuredWireMessages(candidate) : null;
-    if (candidate && (!wireMessages || nativeTools.skippedInvalid > 0)) {
+    if (candidate && !wireMessages) {
       return {
         state: "error",
         error: "native_input_unsupported",
-        detail: "invalid structured message or tool signature payload",
+        detail: "invalid structured message payload",
       };
     }
     const requestPayload = {
@@ -1766,12 +1541,6 @@
         : { kind: "primary_assistant" },
       ...(isTemporary ? { history_and_training_disabled: true, is_do_not_remember: true } : {}),
       supported_encodings: ["v1"],
-      ...(nativeTools.signatures.length > 0
-        ? {
-            local_function_names: nativeTools.names,
-            local_function_signatures: nativeTools.signatures,
-          }
-        : {}),
       messages: candidate ? wireMessages : [
         {
           id: userMsgId,
@@ -1811,7 +1580,6 @@
       lastNodeId: null,
       assistantText: "",
       items: new Map(),
-      nativeToolCalls: new Map(),
       donePromise,
       resolveDone: () => {
         turn.generating = false;
@@ -1957,55 +1725,6 @@
       else publishText(item);
     };
 
-    const emittedToolIds = new Set();
-    const emittedToolReportIds = new Set();
-    const emitToolReportIfNeeded = (call, msgKey = null) => {
-      const report = typeof call?.report === "string" ? call.report.trim() : "";
-      if (!report || emittedToolReportIds.has(call.id)) return;
-      emittedToolReportIds.add(call.id);
-      if (report === lastCommittedCommentary || committedCommentaryTexts.has(report)) return;
-      upsertTextItem(`report:${call.id}`, "commentary", report, true, msgKey);
-    };
-    const recordToolCall = (call, committed, msgKey = null) => {
-      if (msgKey !== null) {
-        commitPriorItemsForNewMessage(msgKey, true);
-      }
-      turn.nativeToolCalls.set(call.id, call);
-      const itemId = `tool:${call.id}`;
-      if (committed) {
-        emitToolReportIfNeeded(call, msgKey);
-      }
-      const existing = turn.items.get(itemId);
-      if (candidate && existing?.committed && (existing.call.arguments !== call.arguments || existing.call.native_arguments_source !== call.native_arguments_source || existing.call.native_recipient !== call.native_recipient || existing.call.name !== call.name || existing.call.namespace !== call.namespace)) {
-        turn.error = { code: "native_call_changed", detail: "committed native call changed" };
-        return;
-      }
-      if (!existing || !existing.committed) {
-        if (committed && existing) {
-          // Ensure tool item sits after any newly inserted `report:<call_id>` item.
-          turn.items.delete(itemId);
-        }
-        turn.items.set(itemId, {
-          id: itemId,
-          kind: "tool_call",
-          committed: Boolean(committed),
-          call,
-          msgKey,
-        });
-      }
-      if (committed && !emittedToolIds.has(call.id)) {
-        emittedToolIds.add(call.id);
-        emitStream({
-          kind: "tool_call",
-          call_id: call.id,
-          name: call.name,
-          ...(call.namespace ? { namespace: call.namespace } : {}),
-          arguments: call.arguments,
-          ...(candidate ? { native_message_id: call.native_message_id, native_recipient: call.native_recipient } : {}),
-        });
-      }
-    };
-
     const syncDerivedAssistantText = () => {
       const answers = [];
       for (const item of turn.items.values()) {
@@ -2033,24 +1752,11 @@
         !msg.metadata?.is_visually_hidden_from_conversation &&
         msg.metadata?.reasoning_recap_type !== "hide_all";
 
-      const nativeCall = extractNativeToolCallFromMessage(
-        msg,
-        declaredToolNames,
-        nativeTools.wireToOriginal,
-        nativeTools.injectedReportWireNames,
-        Boolean(candidate)
-      );
-      if (candidate && !nativeCall && msgCommitted && msg.author?.role === "assistant" && typeof msg.recipient === "string" && declaredToolNames.has(msg.recipient.split(".").pop())) {
-        turn.error = { code: "native_call_invalid", detail: "declared call could not be decoded" };
-        return;
-      }
-      if (nativeCall) {
-        if (candidate && msgCommitted && !nativeCall.native_message_id) {
-          turn.error = { code: "native_call_identity_missing", detail: "native call has no original message identity" };
-          return;
+      const mcpProgress = extractMcpProgressLabel(msg);
+      if (mcpProgress) {
+        if (msg.author?.role === "assistant" || msgCommitted) {
+          upsertTextItem(`mcp:${msgKey}`, "reasoning_summary", mcpProgress, msgCommitted, msgKey, false, true);
         }
-        if (msg.id) turn.messageId = msg.id;
-        recordToolCall(nativeCall, msgCommitted, msgKey);
         return;
       }
 
@@ -2241,25 +1947,7 @@
       const pending = Array.from(turn.items.values());
       for (const item of pending) {
         if (!item.committed) {
-          if (item.kind === "tool_call" && item.call) {
-            emitToolReportIfNeeded(item.call, item.msgKey);
-            turn.items.delete(item.id);
-            item.committed = true;
-            turn.items.set(item.id, item);
-            if (!emittedToolIds.has(item.call.id)) {
-              emittedToolIds.add(item.call.id);
-              emitStream({
-                kind: "tool_call",
-                call_id: item.call.id,
-                name: item.call.name,
-                ...(item.call.namespace ? { namespace: item.call.namespace } : {}),
-                arguments: item.call.arguments,
-                ...(candidate ? { native_message_id: item.call.native_message_id, native_recipient: item.call.native_recipient } : {}),
-              });
-            }
-          } else {
-            commitText(item);
-          }
+          commitText(item);
         }
       }
       emitStream({
@@ -2270,18 +1958,12 @@
     };
 
     try {
-      // Reserve at the actual dispatch boundary, not before asynchronous auth/reads.
-      while (!turn.stopped && Date.now() < nextCompletionAt && Date.now() >= retryAfterUntil) {
-        await Promise.race([turn.donePromise, new Promise((resolve) =>
-          setTimeout(resolve, Math.min(1000, nextCompletionAt - Date.now())))]);
-      }
       if (turn.stopped) return { state: "stopped", lane_id: laneId };
       if (Date.now() < retryAfterUntil) {
         turn.resolveDone();
         return { state: "error", error: "backend_http_429", detail: "Retry-After cooldown",
           retry_after: String(Math.ceil((retryAfterUntil - Date.now()) / 1000)) };
       }
-      nextCompletionAt = Date.now() + Math.max(0, Math.min(300000, Number(opts.min_request_interval_ms) || 0));
       const handle = await client.startCompletionStream({
         request: requestPayload,
         expectedAccountId: dispatchAccountId || undefined,
@@ -2365,7 +2047,7 @@
     // fetch only an assistant message strictly AFTER this turn's userMsgId so previous-turn text
     // can never leak into a tool-only or empty turn.
     const hasAnswerItem = [...turn.items.values()].some((item) => item.kind === "answer" && item.text);
-    if (!candidate && !hasAnswerItem && turn.nativeToolCalls.size === 0 && turn.chatId) {
+    if (!candidate && !hasAnswerItem && turn.chatId) {
       const rd = await readChat({ chat_id: turn.chatId, limit: 10 });
       if (rd.state === "ok" && Array.isArray(rd.messages)) {
         const userIdx = rd.messages.findIndex((m) => m.id === userMsgId);
@@ -2386,27 +2068,7 @@
     const normalizedItems = [];
     const summaryParts = [];
     const answerParts = [];
-    const seenToolIds = new Set();
-    const settledToolCalls = [];
     for (const item of turn.items.values()) {
-      if (item.kind === "tool_call" && item.call) {
-        if (!seenToolIds.has(item.call.id)) {
-          seenToolIds.add(item.call.id);
-          const tc = {
-            id: item.call.id,
-            name: item.call.name,
-            ...(item.call.namespace ? { namespace: item.call.namespace } : {}),
-            arguments: item.call.arguments,
-            ...(candidate ? {
-              native_message_id: item.call.native_message_id,
-              native_recipient: item.call.native_recipient,
-            } : {}),
-          };
-          settledToolCalls.push(tc);
-          normalizedItems.push({ id: item.id, kind: "tool_call", call_id: tc.id, name: tc.name, ...(tc.namespace ? { namespace: tc.namespace } : {}), arguments: tc.arguments, ...(candidate ? { native_message_id: tc.native_message_id, native_recipient: tc.native_recipient } : {}) });
-        }
-        continue;
-      }
       if (!item.text) continue;
       if (item.kind === "reasoning_summary") {
         summaryParts.push(item.text);
@@ -2434,7 +2096,7 @@
       items: normalizedItems,
       reasoning_summary: finalReasoningSummary,
       assistant_text: finalAssistantText,
-      tool_calls: settledToolCalls,
+      tool_calls: [],
       generating: false,
     };
   }

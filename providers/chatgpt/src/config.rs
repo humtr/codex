@@ -24,6 +24,29 @@ pub struct ProviderConfig {
     pub model: ModelConfig,
     #[serde(default)]
     pub history: HistoryConfig,
+    #[serde(default)]
+    pub mcp: McpConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpConfig {
+    /// Inject a concise one-turn MCP role-bridge developer directive on Codex CLI turns
+    /// so ChatGPT uses connected remote MCP tools inside a single turn (default: true).
+    #[serde(default = "default_true")]
+    pub bridge_guidance: bool,
+    /// Optional explicit list of active MCP connector names to surface in bridge guidance.
+    /// When empty, connected Stage 2 connectors are discovered automatically.
+    #[serde(default)]
+    pub preferred_connectors: Vec<String>,
+}
+
+impl Default for McpConfig {
+    fn default() -> Self {
+        Self {
+            bridge_guidance: true,
+            preferred_connectors: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

@@ -191,20 +191,18 @@ test("page_driver status, chats, linear branch read (no private thoughts), proje
   assert.equal(createdProj.name, "New Proj");
 
   // Multi-turn continuation on existing chat_id inherits current_node + gizmo_id + model + mapped reasoning_effort
+  // and omits retired local_function_names/local_function_signatures.
   const sent = await driver.sendMessage({
     chat_id: "conv-12345678",
     prompt: "List directory",
     model: "gpt-5-6-thinking",
     reasoning_effort: "low",
-    local_function_signatures: [{ type: "function", name: "exec_command" }],
     wait_ms: 1000,
   });
   assert.equal(sent.state, "settled");
   assert.equal(sent.chat_id, "conv-12345678");
   assert.equal(sent.assistant_text, "Sure!");
-  assert.equal(sent.tool_calls.length, 1);
-  assert.equal(sent.tool_calls[0].id, "call_42");
-  assert.equal(sent.tool_calls[0].name, "exec_command");
+  assert.deepEqual(Array.from(sent.tool_calls), []);
 
   const wire = startCalls[0].request;
   assert.equal(wire.conversation_id, "conv-12345678");
@@ -213,25 +211,21 @@ test("page_driver status, chats, linear branch read (no private thoughts), proje
   assert.equal(wire.conversation_mode.kind, "gizmo_interaction");
   assert.equal(wire.model, "gpt-5-6-thinking");
   assert.equal(wire.thinking_effort, "min");
-  assert.deepEqual([...wire.local_function_names], ["exec_command"]);
-  assert.equal(wire.local_function_signatures[0].type, "kwargs");
-  assert.equal(wire.local_function_signatures[0].name, "exec_command");
+  assert.equal(wire.local_function_names, undefined);
+  assert.equal(wire.local_function_signatures, undefined);
   assert.equal(wire.messages[0].content.parts[0], "List directory");
 
-  // Instant model must omit thinking_effort (ChatGPT returns 422 if sent on instant models);
-  // continuation turns still send native local_function_signatures without repeating text preamble
+  // Instant model must omit thinking_effort (ChatGPT returns 422 if sent on instant models).
   await driver.sendMessage({
-    prompt: "[Tool Output call_1]\nOK",
+    prompt: "Quick reply",
     model: "gpt-5-6-instant",
     reasoning_effort: "medium",
-    local_function_signatures: [{ type: "custom", name: "exec" }],
     is_continuation: true,
     wait_ms: 1000,
   });
   assert.equal(startCalls[1].request.thinking_effort, undefined);
-  assert.deepEqual([...startCalls[1].request.local_function_names], ["codex_exec"]);
-  assert.equal(startCalls[1].request.local_function_signatures[0].params[0].name, "input");
-  assert.ok(!startCalls[1].request.messages[0].content.parts[0].includes("[LOCAL_FUNCTION_SIGNATURES]"));
+  assert.equal(startCalls[1].request.local_function_names, undefined);
+  assert.equal(startCalls[1].request.local_function_signatures, undefined);
 });
 
 test("page_driver multi-lane parallel execution, per-chat collision guard, isolated observeChat, and targeted stopGeneration", async () => {
@@ -466,7 +460,7 @@ test("page_driver on app://- Electron origin uses connect-app-host Cap'n Web htt
   assert.match(oversized.backend_error || "", /response_too_large/);
 });
 
-test("page_driver tool-only turn does not leak stale text, observeChat reports async error, schema types/collisions/zero-arg & listProjects cursor work", async () => {
+test("page_driver does not leak stale text, surfaces MCP progress, observeChat reports async error, and listProjects cursor works", async () => {
   let streamErrCb = null;
   const { driver, startCalls } = createMockEnv({
     apiMap: {
@@ -481,7 +475,7 @@ test("page_driver tool-only turn does not leak stale text, observeChat reports a
       "GET /backend-api/conversation/conv-tool-only": {
         status: 200,
         body: {
-          title: "Tool Only",
+          title: "MCP Turn",
           current_node: "n2",
           mapping: {
             n1: { parent: null, message: { id: "m1", author: { role: "user" }, content: { content_type: "text", parts: ["Turn 1"] } } },
@@ -497,11 +491,22 @@ test("page_driver tool-only turn does not leak stale text, observeChat reports a
             type: "message",
             conversationId: "conv-tool-only",
             message: {
-              id: "msg-zero-arg",
+              id: "msg-mcp-call",
               author: { role: "assistant" },
-              recipient: "ns_b_status",
+              recipient: "TermuxShell.termux_shell",
               status: "finished_successfully",
-              content: { content_type: "code", text: "" },
+              content: { content_type: "code", text: "{\"command\":\"SECRET_ARG\"}" },
+            },
+          });
+          args.onUpdate?.({
+            type: "message",
+            conversationId: "conv-tool-only",
+            message: {
+              id: "msg-mcp-done",
+              author: { role: "tool", name: "TermuxShell.termux_shell" },
+              status: "finished_successfully",
+              content: { content_type: "text", parts: ["SECRET_STDOUT"] },
+              metadata: { tool_response_metadata: { mcp_tool_result: { isError: false } } },
             },
           });
           args.onComplete?.({ reason: "done" });
@@ -518,46 +523,20 @@ test("page_driver tool-only turn does not leak stale text, observeChat reports a
   assert.equal(page2.state, "ok");
   assert.equal(page2.projects[0].id, "g-p-2");
 
-  // 2. Tool-only turn with array/object/nullable schema, cross-namespace collision, and zero-arg call
+  // 2. MCP progress emits secret-free reasoning summaries without leaking stale turn-1 text
   const res = await driver.sendMessage({
     chat_id: "conv-tool-only",
     prompt: "Check status",
-    local_function_signatures: [
-      {
-        type: "function",
-        name: "status",
-        namespace: "ns_a",
-        parameters: {
-          type: "object",
-          properties: {
-            ids: { type: ["array", "null"], items: { type: "string" } },
-            meta: { type: "object", properties: { ok: { type: "boolean" } } },
-          },
-          required: ["ids"],
-        },
-      },
-      {
-        type: "function",
-        name: "status",
-        namespace: "ns_b",
-        parameters: { type: "object", properties: {} },
-      },
-    ],
     wait_ms: 1000,
   });
   assert.equal(res.state, "settled");
   assert.equal(res.assistant_text, "");
   assert.ok(!res.assistant_text.includes("STALE_TURN_1_TEXT"));
-  assert.equal(res.tool_calls.length, 1);
-  assert.equal(res.tool_calls[0].name, "status");
-  assert.equal(res.tool_calls[0].namespace, "ns_b");
-  assert.equal(res.tool_calls[0].arguments, "{}");
-
-  const sig0 = startCalls[0].request.local_function_signatures[0];
-  assert.equal(sig0.params[0].type.type, "array");
-  assert.equal(sig0.params[0].type.items.type, "string");
-  assert.equal(sig0.params[1].type.type, "object");
-  assert.equal(startCalls[0].request.local_function_names.length, 2);
+  assert.ok(res.reasoning_summary.includes("Running TermuxShell.termux_shell"));
+  assert.ok(res.reasoning_summary.includes("Completed TermuxShell.termux_shell"));
+  assert.ok(!res.reasoning_summary.includes("SECRET_ARG"));
+  assert.ok(!res.reasoning_summary.includes("SECRET_STDOUT"));
+  assert.equal(startCalls[0].request.local_function_names, undefined);
 
   // 3. Async onError after in_progress MUST be surfaced by observeChat (not swallowed as settled!)
   const pending = await driver.sendMessage({ prompt: "Will fail async", wait_ms: 20 });
@@ -934,13 +913,14 @@ test("streaming publishes AppHost thought headings, titles, recaps, commentary, 
     ]
   );
 
-  // Non-streaming push_events:false yields identical normalized items and tests native tool commit + dedup.
+  // Non-streaming push_events:false yields identical normalized items and deduplicates MCP progress.
   let nonStreamCallbacks;
   const nonStreamEnv = createMockEnv({
     apiMap: { "GET /backend-api/me": { status: 200, body: { account_id: "acc-1" } } },
     completionBehavior(args) {
       nonStreamCallbacks = args;
       assert.deepEqual(JSON.parse(JSON.stringify(args.request.supported_encodings)), ["v1"]);
+      assert.equal(args.request.local_function_names, undefined);
       return { streamRequestId: "stream-2" };
     },
   });
@@ -949,778 +929,330 @@ test("streaming publishes AppHost thought headings, titles, recaps, commentary, 
     prompt: "test",
     push_events: false,
     wait_ms: 5000,
-    local_function_signatures: [{ type: "function", name: "check_tool", parameters: { type: "object" } }],
   });
   await new Promise((r) => setTimeout(r, 10));
   nonStreamCallbacks.onDecodedEvent({
     update: { type: "message", conversationId: "conv-ns", message: message("t1", { content_type: "thoughts", thoughts: [thought("Thinking step", true)] }) },
   });
   nonStreamCallbacks.onDecodedEvent({
+    update: {
+      type: "message",
+      conversationId: "conv-ns",
+      message: { id: "mcp1", author: { role: "assistant" }, recipient: "TermuxShell.termux_shell", content: { text: "{\"command\":\"ls\"}" }, status: "finished_successfully" },
+    },
+  });
+  nonStreamCallbacks.onDecodedEvent({
+    update: {
+      type: "message",
+      conversationId: "conv-ns",
+      message: { id: "mcp1", author: { role: "assistant" }, recipient: "TermuxShell.termux_shell", content: { text: "{\"command\":\"ls\"}" }, status: "finished_successfully" },
+    },
+  });
+  nonStreamCallbacks.onDecodedEvent({
     update: { type: "message", conversationId: "conv-ns", message: message("a1", { content_type: "text", parts: ["Final NS"] }, undefined, { status: "finished_successfully" }) },
-  });
-  nonStreamCallbacks.onDecodedEvent({
-    update: {
-      type: "message",
-      conversationId: "conv-ns",
-      message: { id: "tc1", author: { role: "assistant" }, recipient: "check_tool", content: { text: "{\"x\":1}" }, status: "finished_successfully" },
-    },
-  });
-  // Duplicate delivery of the same message ID must not duplicate normalized items.
-  nonStreamCallbacks.onDecodedEvent({
-    update: {
-      type: "message",
-      conversationId: "conv-ns",
-      message: { id: "tc1", author: { role: "assistant" }, recipient: "check_tool", content: { text: "{\"x\":1}" }, status: "finished_successfully" },
-    },
   });
   nonStreamCallbacks.onComplete();
   const nsSettled = await nsPromise;
   assert.deepEqual(JSON.parse(JSON.stringify(nsSettled.items)), [
     { id: "thought:t1:1", kind: "reasoning_summary", text: "**Thinking step**\nPRIVATE_THOUGHT_BODY" },
+    { id: "mcp:mcp1", kind: "reasoning_summary", text: "Running TermuxShell.termux_shell" },
     { id: "answer:a1", kind: "answer", text: "Final NS" },
-    { id: "tool:call_tc1", kind: "tool_call", call_id: "call_tc1", name: "check_tool", arguments: "{\"x\":1}" },
   ]);
   assert.equal(nonStreamEnv.streamUpdates.length, 0);
 });
 
-test("page_driver omits temporary chat flags, deduplicates reasoning titles, commits prior thoughts before tools, and ignores undeclared recipients", async () => {
-  let callbacks;
-  let ready;
-  let resolveStarted = () => {};
-  const { driver, startCalls, streamUpdates } = createMockEnv({
-    apiMap: {
-      "GET /backend-api/me": { status: 200, body: { account_id: "acc-tools" } },
-      "GET /backend-api/conversation/conv-existing": {
-        status: 200,
-        body: { current_node: "node-1", mapping: {} },
-      },
-    },
-    completionBehavior(args) {
-      callbacks = args;
-      resolveStarted();
-      return { streamRequestId: `stream-${startCalls.length}` };
-    },
-  });
-
-  // 1. Standard turn with local_function_signatures omits temporary chat & disabled_plugin_ids.
-  ready = new Promise((resolve) => { resolveStarted = resolve; });
-  const p1 = driver.sendMessage({
-    lane_id: "lane-t1",
-    prompt: "Run pwd",
-    push_events: true,
-    model: "gpt-6-2-thinking",
-    local_function_signatures: [{ type: "function", name: "exec_command", parameters: { type: "object" } }],
-  });
-  await ready;
-  assert.equal(startCalls[0].request.is_do_not_remember, undefined);
-  assert.equal(startCalls[0].request.history_and_training_disabled, undefined);
-  assert.equal(startCalls[0].request.temporary_chat_requests_personalization, undefined);
-  assert.equal(startCalls[0].request.disabled_plugin_ids, undefined);
-
-  // Uncommitted thought commits before new tool-role title / tool_call; duplicate heading is suppressed; tool body never leaks.
-  callbacks.onDecodedEvent({
-    update: {
-      type: "message",
-      conversationId: "conv-existing",
-      message: {
-        id: "m-thought-open",
-        author: { role: "assistant" },
-        status: "in_progress",
-        content: {
-          content_type: "thoughts",
-          thoughts: [{ summary: "Planning shell command", content: "Need git branch from local repo.", finished: false }],
-        },
-      },
-    },
-  });
-  callbacks.onDecodedEvent({
-    update: {
-      type: "message",
-      conversationId: "conv-existing",
-      message: {
-        id: "m-tool-dup-title",
-        author: { role: "tool" },
-        status: "finished_successfully",
-        content: { content_type: "text", parts: ["TOOL_BODY_MUST_NOT_LEAK"] },
-        metadata: { rich_reasoning_titles: ["Planning shell command", "Checked remote status"] },
-      },
-    },
-  });
-  callbacks.onDecodedEvent({
-    update: {
-      type: "message",
-      conversationId: "conv-existing",
-      message: {
-        id: "m-call-1",
-        author: { role: "assistant" },
-        recipient: "exec_command",
-        status: "finished_successfully",
-        content: { text: "{\"cmd\":\"pwd\"}" },
-      },
-    },
-  });
-  callbacks.onComplete();
-  const s1 = await p1;
-  assert.equal(s1.state, "settled");
-  assert.ok(!JSON.stringify(streamUpdates).includes("TOOL_BODY_MUST_NOT_LEAK"));
-  const upsertsAndCalls = streamUpdates
-    .filter((x) => x.kind === "item_upsert" || x.kind === "tool_call")
-    .map((x) => x.kind === "tool_call" ? [x.kind, x.name] : [x.kind, x.item_id, x.text, x.committed]);
-  assert.deepEqual(upsertsAndCalls, [
-    ["item_upsert", "thought:m-thought-open:1", "**Planning shell command**\nNeed git branch from local repo.", false],
-    ["item_upsert", "thought:m-thought-open:1", "**Planning shell command**\nNeed git branch from local repo.", true],
-    ["item_upsert", "title:m-tool-dup-title:1", "Checked remote status", true],
-    ["tool_call", "exec_command"],
-  ]);
-
-  // 2. Continuation turn preserves conversation_id without temporary chat flags.
-  ready = new Promise((resolve) => { resolveStarted = resolve; });
-  const p2 = driver.sendMessage({
-    lane_id: "lane-t2",
-    chat_id: "conv-existing",
-    prompt: "[Tool Output call_1]\n/repo",
-    model: "gpt-6-2-thinking",
-    local_function_signatures: [{ type: "function", name: "exec_command", parameters: { type: "object" } }],
-  });
-  await ready;
-  assert.equal(startCalls[1].request.conversation_id, "conv-existing");
-  assert.equal(startCalls[1].request.is_do_not_remember, undefined);
-  assert.equal(startCalls[1].request.history_and_training_disabled, undefined);
-  assert.equal(startCalls[1].request.temporary_chat_requests_personalization, undefined);
-  callbacks.onComplete();
-  await p2;
-
-  // 3. Control send without local tools ignores internal recipients like `python`.
-  ready = new Promise((resolve) => { resolveStarted = resolve; });
-  const p3 = driver.sendMessage({
-    lane_id: "lane-t3",
-    prompt: "Plain chat without local tools",
-    model: "gpt-6-2-thinking",
-  });
-  await ready;
-  assert.equal(startCalls[2].request.is_do_not_remember, undefined);
-  assert.equal(startCalls[2].request.history_and_training_disabled, undefined);
-  callbacks.onDecodedEvent({
-    update: {
-      type: "message",
-      conversationId: "conv-plain",
-      message: {
-        id: "m-python-internal",
-        author: { role: "assistant" },
-        recipient: "python",
-        status: "finished_successfully",
-        content: { text: "print(1+1)" },
-      },
-    },
-  });
-  callbacks.onDecodedEvent({
-    update: {
-      type: "message",
-      conversationId: "conv-plain",
-      message: {
-        id: "m-final-plain",
-        author: { role: "assistant" },
-        status: "finished_successfully",
-        content: { content_type: "text", parts: ["2"] },
-      },
-    },
-  });
-  callbacks.onComplete();
-  const s3 = await p3;
-  assert.equal(s3.tool_calls.length, 0);
-  assert.equal(s3.assistant_text, "2");
-});
-
-test("page_driver projects interim pre-tool messages and stripped tool reports as commentary alongside reasoning", async () => {
-  let callbacks;
-  let ready;
-  let resolveStarted = () => {};
-  const { driver, startCalls, streamUpdates } = createMockEnv({
-    apiMap: {
-      "GET /backend-api/me": { status: 200, body: { account_id: "acc-commentary" } },
-    },
-    completionBehavior(args) {
-      callbacks = args;
-      resolveStarted();
-      return { streamRequestId: `stream-c-${startCalls.length}` };
-    },
-  });
-
-  ready = new Promise((resolve) => { resolveStarted = resolve; });
-  const p = driver.sendMessage({
-    lane_id: "lane-c1",
-    prompt: "Inspect repo",
-    push_events: true,
-    model: "gpt-6-2-thinking",
-    local_function_signatures: [
-      {
-        type: "function",
-        name: "exec_command",
-        parameters: { type: "object", properties: { cmd: { type: "string" } }, required: ["cmd"] },
-      },
-      {
-        type: "function",
-        name: "already_has_report",
-        parameters: { type: "object", properties: { report: { type: "string" } }, required: ["report"] },
-      },
-      {
-        type: "custom",
-        name: "apply_patch",
-      },
-    ],
-  });
-  await ready;
-
-  const sigs = startCalls[0].request.local_function_signatures;
-  const execSig = sigs.find((s) => s.name === "exec_command");
-  const keepSig = sigs.find((s) => s.name === "already_has_report");
-  const customSig = sigs.find((s) => s.name === "apply_patch");
-  assert.ok(execSig.params.some((param) => param.name === "report" && param.required === false));
-  assert.equal(keepSig.params.filter((param) => param.name === "report").length, 1);
-  assert.ok(!customSig.params.some((param) => param.name === "report"));
-
-  // Interim message with channel="final" and end_turn=false becomes commentary (not final_answer).
-  callbacks.onDecodedEvent({
-    update: {
-      type: "message",
-      conversationId: "conv-c1",
-      message: {
-        id: "m-interim",
-        author: { role: "assistant" },
-        channel: "final",
-        status: "in_progress",
-        end_turn: false,
-        content: { content_type: "text", parts: ["저장소 상태를 먼저 확인하겠습니다."] },
-      },
-    },
-  });
-  callbacks.onDecodedEvent({
-    update: {
-      type: "message",
-      conversationId: "conv-c1",
-      message: {
-        id: "m-interim",
-        author: { role: "assistant" },
-        channel: "final",
-        status: "finished_successfully",
-        end_turn: false,
-        content: { content_type: "text", parts: ["저장소 상태를 먼저 확인하겠습니다."] },
-      },
-    },
-  });
-  // Simultaneous reasoning thought arrives.
-  callbacks.onDecodedEvent({
-    update: {
-      type: "message",
-      conversationId: "conv-c1",
-      message: {
-        id: "m-thought",
-        author: { role: "assistant" },
-        status: "finished_successfully",
-        content: {
-          content_type: "thoughts",
-          thoughts: [{ summary: "Checking git status", content: "Will run git status -sb.", finished: true }],
-        },
-      },
-    },
-  });
-  // Tool call with injected `report`: stripped from forwarded arguments, emitted as commentary before tool_call.
-  callbacks.onDecodedEvent({
-    update: {
-      type: "message",
-      conversationId: "conv-c1",
-      message: {
-        id: "m-exec",
-        author: { role: "assistant" },
-        recipient: "exec_command",
-        status: "finished_successfully",
-        content: { text: JSON.stringify({ cmd: "git status -sb", report: "현재 브랜치와 변경 파일을 조회합니다." }) },
-      },
-    },
-  });
-  // Native tool that already declared `report` preserves its `report` parameter untouched.
-  callbacks.onDecodedEvent({
-    update: {
-      type: "message",
-      conversationId: "conv-c1",
-      message: {
-        id: "m-keep",
-        author: { role: "assistant" },
-        recipient: "already_has_report",
-        status: "finished_successfully",
-        content: { text: JSON.stringify({ report: "KEEP_ME" }) },
-      },
-    },
-  });
-  callbacks.onComplete();
-  const settled = await p;
-
-  assert.equal(settled.state, "settled");
-  assert.equal(settled.assistant_text, "");
-  assert.deepEqual(
-    JSON.parse(JSON.stringify(settled.tool_calls.map((c) => [c.name, c.arguments]))),
-    [
-      ["exec_command", "{\"cmd\":\"git status -sb\"}"],
-      ["already_has_report", "{\"report\":\"KEEP_ME\"}"],
-    ]
-  );
-  const committedSeq = JSON.parse(
-    JSON.stringify(
-      streamUpdates
-        .filter((x) => (x.kind === "item_upsert" && x.committed) || x.kind === "tool_call")
-        .map((x) => (x.kind === "tool_call" ? ["tool_call", x.name, x.arguments] : [x.item_kind, x.text]))
-    )
-  );
-  assert.deepEqual(committedSeq, [
-    ["commentary", "저장소 상태를 먼저 확인하겠습니다."],
-    ["reasoning_summary", "**Checking git status**\nWill run git status -sb."],
-    ["commentary", "현재 브랜치와 변경 파일을 조회합니다."],
-    ["tool_call", "exec_command", "{\"cmd\":\"git status -sb\"}"],
-    ["tool_call", "already_has_report", "{\"report\":\"KEEP_ME\"}"],
-  ]);
-});
-
-test("page_driver enforces single item per msgKey so promoted pre-tool commentary is never duplicated on late close", async () => {
-  let callbacks;
-  let ready;
-  let resolveStarted = () => {};
-  const { driver, streamUpdates } = createMockEnv({
-    apiMap: {
-      "GET /backend-api/me": { status: 200, body: { account_id: "acc-dedup" } },
-    },
-    completionBehavior(args) {
-      callbacks = args;
-      resolveStarted();
-      return { streamRequestId: "stream-dedup-1" };
-    },
-  });
-
-  ready = new Promise((resolve) => { resolveStarted = resolve; });
-  const p = driver.sendMessage({
-    lane_id: "lane-dedup",
-    prompt: "저장소 확인",
-    push_events: true,
-    model: "gpt-6-thinking",
-    local_function_signatures: [
-      {
-        type: "function",
-        name: "exec_command",
-        parameters: { type: "object", properties: { cmd: { type: "string" } }, required: ["cmd"] },
-      },
-    ],
-  });
-  await ready;
-
-  const tableMsg = "## Codex 저장소 확인 결과\n\n| 항목 | 결과 |\n|---|---|\n| 브랜치 | main |";
-  // 1. Message M1 starts in_progress as channel="final".
-  callbacks.onDecodedEvent({
-    update: {
-      type: "message",
-      conversationId: "conv-dedup",
-      message: {
-        id: "m-table",
-        author: { role: "assistant" },
-        channel: "final",
-        status: "in_progress",
-        content: { content_type: "text", parts: [tableMsg] },
-      },
-    },
-  });
-  // 2. Tool call M2 arrives, promoting M1 to committed commentary before tool_call.
-  callbacks.onDecodedEvent({
-    update: {
-      type: "message",
-      conversationId: "conv-dedup",
-      message: {
-        id: "m-call-git",
-        author: { role: "assistant" },
-        recipient: "exec_command",
-        status: "finished_successfully",
-        content: { text: JSON.stringify({ cmd: "git show -1 --stat" }) },
-      },
-    },
-  });
-  // 3. Reasoning recap arrives.
-  callbacks.onDecodedEvent({
-    update: {
-      type: "message",
-      conversationId: "conv-dedup",
-      message: {
-        id: "m-recap",
-        author: { role: "assistant" },
-        status: "finished_successfully",
-        content: { content_type: "reasoning_recap", content: "Worked for 5s" },
-      },
-    },
-  });
-  // 4. Late closing snapshot of the exact same M1 with end_turn=false arrives (reproduces resp_b7053492bc608f8e).
-  callbacks.onDecodedEvent({
-    update: {
-      type: "message",
-      conversationId: "conv-dedup",
-      message: {
-        id: "m-table",
-        author: { role: "assistant" },
-        channel: "final",
-        status: "finished_successfully",
-        end_turn: false,
-        content: { content_type: "text", parts: [tableMsg] },
-      },
-    },
-  });
-  // 5. Genuine strict suffix expansion on M1 only emits the new suffix, never repeats tableMsg.
-  callbacks.onDecodedEvent({
-    update: {
-      type: "message",
-      conversationId: "conv-dedup",
-      message: {
-        id: "m-table",
-        author: { role: "assistant" },
-        channel: "final",
-        status: "finished_successfully",
-        end_turn: false,
-        content: { content_type: "text", parts: [`${tableMsg}\n\n추가 메모: 검증 완료.`] },
-      },
-    },
-  });
-  callbacks.onComplete();
-  const settled = await p;
-
-  const committedSeq = JSON.parse(
-    JSON.stringify(
-      streamUpdates
-        .filter((x) => (x.kind === "item_upsert" && x.committed) || x.kind === "tool_call")
-        .map((x) => (x.kind === "tool_call" ? ["tool_call", x.name] : [x.item_kind, x.text]))
-    )
-  );
-  assert.deepEqual(committedSeq, [
-    ["commentary", tableMsg],
-    ["tool_call", "exec_command"],
-    ["reasoning_summary", "Worked for 5s"],
-    ["commentary", "추가 메모: 검증 완료."],
-  ]);
-  assert.equal(settled.items.filter((it) => it.text === tableMsg).length, 1);
-});
-
-// Structured Option B fixtures emulate the AppHost CompletionClient wire shape.
-function structuredFixture({ secondRound = true, toolRounds = 1, parallelCalls = 1, streamMutation, apiMap = {}, developer = false, oneTurnDeveloper = false, hiddenUserPreamble = false, liveResultCommentary = false, zeroArgCall = false } = {}) {
-  const chat = 'conv-structured';
-  const callId = 'original-call-123456789012345678901234567890';
-  const original = {
-    id: callId,
-    author: { role: 'assistant' },
-    recipient: 'local.fixture',
-    status: 'finished_successfully',
-    content: zeroArgCall ? { content_type: 'code', text: '' } : { content_type: 'code', text: '{"x":1}' },
-  };
-  const commentary = {
-    id: 'live-result-commentary', author: { role: 'assistant' }, recipient: 'all',
-    channel: 'commentary', status: 'finished_successfully',
-    content: { content_type: 'text', parts: ['Checking the returned value.'] },
-  };
+test("MCP single-turn preserves developer role, one-turn metadata, hidden user preamble, and rejects legacy tool role", async () => {
   const apiHits = [];
-  let round = 0;
   const env = createMockEnv({
     apiMap: {
-      'GET /backend-api/me': { status: 200, body: () => { apiHits.push('GET /me'); return { account_id: 'acc-fixture' }; } },
-      [`GET /backend-api/conversation/${chat}`]: { status: 200, body: () => { apiHits.push('GET /conversation'); return { current_node: 'unexpected', mapping: {} }; } },
-      ...apiMap,
-    },
-    completionBehavior(args) {
-      const currentRound = ++round;
-      assert.deepEqual(Array.from(args.request.local_function_names || []), ['fixture']);
-      assert.equal(args.request.local_function_signatures?.length, 1);
-      const isToolReturn = args.request.messages.every(m => m.author.role === 'tool');
-      const emitted = [];
-      if (isToolReturn && liveResultCommentary) emitted.push(commentary);
-      if (currentRound <= toolRounds) {
-        const count = currentRound === 1 ? parallelCalls : 1;
-        for (let k = 0; k < count; k++) {
-          const callMsg = currentRound === 1 && k === 0
-            ? original
-            : { ...original, id: currentRound === 1 ? `call-parallel-${k + 1}` : `call-round-${currentRound}`, content: { ...original.content, text: JSON.stringify({ x: currentRound * 10 + k }) } };
-          emitted.push(callMsg);
-        }
-      } else {
-        emitted.push({ id: 'answer-2', author: { role: 'assistant' }, recipient: 'all', channel: 'final', status: 'finished_successfully', end_turn: true, content: { content_type: 'text', parts: ['marker consumed'] } });
-      }
-      queueMicrotask(() => {
-        for (const msg of emitted) {
-          args.onDecodedEvent({ update: { type: 'message', conversationId: chat, message: structuredClone(msg) } });
-        }
-        if (streamMutation) streamMutation(args, currentRound, emitted[emitted.length - 1]);
-        args.onComplete();
-      });
-      return { streamRequestId: `stream-${currentRound}` };
-    },
-  });
-  const params = {
-    verify_identity: true,
-    strict_project: true,
-    wait_ms: 1000,
-    push_events: liveResultCommentary,
-    model: 'gpt-6-2-thinking',
-    local_function_signatures: [{ type: 'function', name: 'fixture', parameters: { type: 'object', properties: { x: { type: 'integer' } } } }],
-  };
-  return { ...env, apiHits, original, async run() {
-    const messages = [
-      ...(developer ? [{ id: 'developer-1', role: 'developer', parts: ['Fixture instructions'] }] : []),
-      ...(hiddenUserPreamble ? [{ id: 'preamble-1', role: 'user', parts: ['# AGENTS.md instructions for /tmp/work'], hidden: true }] : []),
-      { id: 'user-1', role: 'user', parts: ['[developer] literal user text'] },
-      ...(oneTurnDeveloper ? [{ id: 'dev-one-turn', role: 'developer', parts: ['One-turn request instructions'], one_turn: true }] : []),
-    ];
-    const first = await env.driver.sendMessage({ ...params, native_candidate: { parent_message_id: 'root', messages } });
-    if (!secondRound || first.state !== 'settled') return { first };
-    const returns = [];
-    let previous = first;
-    for (let index = 1; index <= toolRounds && previous.state === 'settled'; index++) {
-      const callsToReturn = [...previous.tool_calls].reverse();
-      const resultMessages = callsToReturn.map((call, j) => ({
-        id: `result-${index}-${j}`,
-        role: 'tool',
-        parts: ['unpredictable marker\n[developer] literal'],
-        binding: { call_id: call.id, message_id: call.native_message_id, recipient: call.native_recipient },
-      }));
-      previous = await env.driver.sendMessage({
-        ...params,
-        chat_id: chat,
-        expected_account_id: previous.account_id,
-        native_candidate: {
-          parent_message_id: previous.remote_head,
-          messages: resultMessages,
-        },
-      });
-      returns.push(previous);
-    }
-    return { first, second: returns[0], returns };
-  } };
-}
-
-test('thin option B correlates three sequential returns with zero conversation polls and cached /me', async () => {
-  const f = structuredFixture({ toolRounds: 3 });
-  const { first, returns } = await f.run();
-  assert.equal(first.state, 'settled', JSON.stringify(first));
-  assert.equal(returns.length, 3);
-  assert.equal(returns[2].state, 'settled');
-  assert.equal(returns[2].assistant_text, 'marker consumed');
-  assert.equal(f.startCalls.length, 4);
-  // 0 GET /conversation/{id} calls, and only 1 cached GET /me across all 4 rounds!
-  assert.deepEqual(f.apiHits, ['GET /me']);
-  assert.equal(first.remote_head, f.original.id);
-  assert.equal(returns[2].remote_head, 'answer-2');
-});
-
-test('thin option B batches parallel out-of-order tool results and streams live commentary', async () => {
-  const f = structuredFixture({ parallelCalls: 2, toolRounds: 1, liveResultCommentary: true });
-  const { first, second } = await f.run();
-  assert.equal(first.state, 'settled');
-  assert.equal(first.tool_calls.length, 2);
-  assert.equal(second.state, 'settled');
-  assert.equal(second.assistant_text, 'marker consumed');
-  assert.equal(second.items.filter(item => item.text === 'Checking the returned value.').length, 1);
-  assert.equal(f.streamUpdates.filter(event => event.text === 'Checking the returned value.').length, 1);
-  const sentResults = f.startCalls[1].request.messages;
-  assert.equal(sentResults.length, 2);
-  assert.equal(JSON.parse(sentResults[0].content.text).call_id, 'call-parallel-2');
-  assert.equal(JSON.parse(sentResults[1].content.text).call_id, f.original.id);
-  assert.equal(f.startCalls[1].expectedAccountId, 'acc-fixture');
-});
-
-test('thin option B preserves developer role, one-turn metadata, hidden user preamble, and zero-arg calls', async () => {
-  const f = structuredFixture({ developer: true, oneTurnDeveloper: true, hiddenUserPreamble: true, zeroArgCall: true });
-  const { first, second } = await f.run();
-  assert.equal(first.state, 'settled');
-  assert.equal(first.tool_calls.length, 1);
-  assert.equal(first.tool_calls[0].arguments, '{}');
-  assert.equal(second.state, 'settled');
-  const [dev, hiddenPreamble, user, oneTurn] = f.startCalls[0].request.messages;
-  assert.equal(dev.author.role, 'developer');
-  assert.equal(dev.metadata.is_visually_hidden_from_conversation, true);
-  assert.equal(dev.metadata.exclude_after_next_user_message, undefined);
-  assert.equal(hiddenPreamble.author.role, 'user');
-  assert.equal(hiddenPreamble.metadata.is_visually_hidden_from_conversation, true);
-  assert.equal(user.author.role, 'user');
-  assert.equal(user.metadata?.is_visually_hidden_from_conversation, undefined);
-  assert.equal(oneTurn.author.role, 'developer');
-  assert.equal(oneTurn.metadata.exclude_after_next_user_message, true);
-});
-
-test('thin option B supports temporary chats and project-only memory_scope on createProject', async () => {
-  let createdBody = null;
-  const env = createMockEnv({
-    apiMap: {
-      'GET /backend-api/me': { status: 200, body: { account_id: 'acc-temp' } },
-      'POST /backend-api/projects': { status: 200, body: (opts) => {
-        createdBody = JSON.parse(opts.body);
-        return { gizmo: { id: 'g-p-util', memory_scope: createdBody.memory_scope, display: { name: createdBody.name } } };
-      } },
+      "GET /backend-api/me": { status: 200, body: () => { apiHits.push("GET /me"); return { account_id: "acc-mcp" }; } },
     },
     completionBehavior(args) {
       queueMicrotask(() => {
         args.onDecodedEvent({
           update: {
-            type: 'message',
-            conversationId: 'conv-temp-1',
-            message: { id: 'ans-temp', author: { role: 'assistant' }, recipient: 'all', channel: 'final', status: 'finished_successfully', end_turn: true, content: { content_type: 'text', parts: ['Short Title'] } },
+            type: "message",
+            conversationId: "conv-mcp-1",
+            message: {
+              id: "ans-mcp-1",
+              author: { role: "assistant" },
+              recipient: "all",
+              channel: "final",
+              status: "finished_successfully",
+              end_turn: true,
+              content: { content_type: "text", parts: ["Single turn complete"] },
+            },
           },
         });
         args.onComplete();
       });
-      return { streamRequestId: 'stream-temp' };
+      return { streamRequestId: "stream-mcp-1" };
+    },
+  });
+
+  const first = await env.driver.sendMessage({
+    model: "gpt-6-2-thinking",
+    reasoning_effort: "high",
+    wait_ms: 1000,
+    native_candidate: {
+      parent_message_id: "root-1",
+      messages: [
+        { id: "dev-1", role: "developer", parts: ["Developer rule"] },
+        { id: "pre-1", role: "user", hidden: true, parts: ["<environment_context><cwd>/repo</cwd></environment_context>"] },
+        { id: "usr-1", role: "user", parts: ["Run git status"] },
+        { id: "inst-1", role: "developer", one_turn: true, parts: ["[Termux MCP Single-Turn Execution Mode]"] },
+      ],
+    },
+  });
+  assert.equal(first.state, "settled");
+  assert.equal(first.chat_id, "conv-mcp-1");
+  assert.equal(first.remote_head, "ans-mcp-1");
+  assert.equal(first.assistant_text, "Single turn complete");
+
+  const req = env.startCalls[0].request;
+  assert.equal(req.local_function_names, undefined);
+  assert.equal(req.local_function_signatures, undefined);
+  const [dev, hiddenPreamble, user, oneTurn] = req.messages;
+  assert.equal(dev.author.role, "developer");
+  assert.equal(dev.metadata.is_visually_hidden_from_conversation, true);
+  assert.equal(dev.metadata.exclude_after_next_user_message, undefined);
+  assert.equal(hiddenPreamble.author.role, "user");
+  assert.equal(hiddenPreamble.metadata.is_visually_hidden_from_conversation, true);
+  assert.equal(user.author.role, "user");
+  assert.equal(user.metadata?.is_visually_hidden_from_conversation, undefined);
+  assert.equal(oneTurn.author.role, "developer");
+  assert.equal(oneTurn.metadata.exclude_after_next_user_message, true);
+
+  // Follow-up turn reuses cached /me (zero extra GET /me) and continues from remote_head.
+  const second = await env.driver.sendMessage({
+    chat_id: first.chat_id,
+    expected_account_id: first.account_id,
+    model: "gpt-6-2-thinking",
+    wait_ms: 1000,
+    native_candidate: {
+      parent_message_id: first.remote_head,
+      messages: [{ id: "usr-2", role: "user", parts: ["Follow up"] }],
+    },
+  });
+  assert.equal(second.state, "settled");
+  assert.deepEqual(apiHits, ["GET /me"]);
+  assert.equal(env.startCalls[1].request.parent_message_id, "ans-mcp-1");
+
+  // Legacy role:"tool" wire messages are rejected cleanly in MCP single-turn mode.
+  const bad = await env.driver.sendMessage({
+    model: "gpt-6-2-thinking",
+    wait_ms: 1000,
+    native_candidate: {
+      parent_message_id: "root-2",
+      messages: [{ id: "t-1", role: "tool", parts: ["out"], binding: { message_id: "m1", recipient: "local.exec" } }],
+    },
+  });
+  assert.equal(bad.state, "error");
+  assert.equal(bad.error, "native_input_unsupported");
+});
+
+test("MCP single-turn resolves native account pin and rejects chat identity switch", async () => {
+  for (const verifiedAccounts of [["workspace"], [], ["personal", "workspace"]]) {
+    const env = createMockEnv({
+      apiMap: {
+        "GET /backend-api/me": {
+          status: 200,
+          body: (opts) => {
+            const expected = opts.headers?.["X-OpenAI-Expected-Account-Id"];
+            return !expected || verifiedAccounts.includes(expected)
+              ? { id: "authenticated-user" }
+              : { error: "account_changed" };
+          },
+        },
+        "GET /backend-api/accounts/check/v4-2023-04-27": {
+          status: 200,
+          body: {
+            account_ordering: ["personal", "workspace"],
+            accounts: {
+              personal: { account: { account_id: "personal" } },
+              workspace: { account: { account_id: "workspace" } },
+            },
+          },
+        },
+      },
+      completionBehavior(args) {
+        queueMicrotask(() => {
+          args.onDecodedEvent({
+            update: {
+              type: "message",
+              conversationId: "conv-pin-1",
+              message: {
+                id: "ans-pin-1",
+                author: { role: "assistant" },
+                recipient: "all",
+                channel: "final",
+                status: "finished_successfully",
+                end_turn: true,
+                content: { content_type: "text", parts: ["Pinned OK"] },
+              },
+            },
+          });
+          args.onComplete();
+        });
+        return { streamRequestId: "stream-pin" };
+      },
+    });
+    const res = await env.driver.sendMessage({
+      verify_identity: true,
+      model: "gpt-6-2-thinking",
+      wait_ms: 1000,
+      native_candidate: {
+        parent_message_id: "root",
+        messages: [{ id: "u-pin", role: "user", parts: ["hello"] }],
+      },
+    });
+    if (verifiedAccounts.length === 1) {
+      assert.equal(res.state, "settled");
+      assert.equal(res.account_id, "workspace");
+      assert.equal(env.startCalls[0].expectedAccountId, "workspace");
+    } else {
+      assert.equal(res.error, "pinned_account_unavailable");
+      assert.equal(env.startCalls.length, 0);
+    }
+  }
+
+  const switched = createMockEnv({
+    apiMap: { "GET /backend-api/me": { status: 200, body: { account_id: "acc-1" } } },
+    completionBehavior(args) {
+      queueMicrotask(() => {
+        args.onDecodedEvent({ update: { type: "message", conversationId: "wrong-chat" } });
+        args.onComplete();
+      });
+      return { streamRequestId: "stream-switch" };
+    },
+  });
+  const res = await switched.driver.sendMessage({
+    chat_id: "conv-expected",
+    expected_account_id: "acc-1",
+    model: "gpt-6-2-thinking",
+    wait_ms: 1000,
+    native_candidate: {
+      parent_message_id: "p-1",
+      messages: [{ id: "u-sw", role: "user", parts: ["hi"] }],
+    },
+  });
+  assert.equal(res.error, "native_chat_changed");
+});
+
+test("temporary chats and project-only memory_scope work on createProject", async () => {
+  let createdBody = null;
+  const env = createMockEnv({
+    apiMap: {
+      "GET /backend-api/me": { status: 200, body: { account_id: "acc-temp" } },
+      "POST /backend-api/projects": {
+        status: 200,
+        body: (opts) => {
+          createdBody = JSON.parse(opts.body);
+          return { gizmo: { id: "g-p-util", memory_scope: createdBody.memory_scope, display: { name: createdBody.name } } };
+        },
+      },
+    },
+    completionBehavior(args) {
+      queueMicrotask(() => {
+        args.onDecodedEvent({
+          update: {
+            type: "message",
+            conversationId: "conv-temp-1",
+            message: {
+              id: "ans-temp",
+              author: { role: "assistant" },
+              recipient: "all",
+              channel: "final",
+              status: "finished_successfully",
+              end_turn: true,
+              content: { content_type: "text", parts: ["Short Title"] },
+            },
+          },
+        });
+        args.onComplete();
+      });
+      return { streamRequestId: "stream-temp" };
     },
   });
   const res = await env.driver.sendMessage({
-    model: 'gpt-6-2-instant',
+    model: "gpt-6-2-instant",
     temporary: true,
-    project_id: 'g-p-should-be-omitted',
+    project_id: "g-p-should-be-omitted",
     wait_ms: 1000,
     native_candidate: {
-      parent_message_id: 'root',
-      messages: [{ id: 'u-temp', role: 'user', parts: ['Generate a title'] }],
+      parent_message_id: "root",
+      messages: [{ id: "u-temp", role: "user", parts: ["Generate a title"] }],
     },
   });
-  assert.equal(res.state, 'settled');
-  assert.equal(res.assistant_text, 'Short Title');
+  assert.equal(res.state, "settled");
+  assert.equal(res.assistant_text, "Short Title");
   const req = env.startCalls[0].request;
   assert.equal(req.history_and_training_disabled, true);
   assert.equal(req.is_do_not_remember, true);
   assert.equal(req.gizmo_id, undefined);
 
-  const proj = await env.driver.createProject({ name: 'Codex Utility', memory_scope: 'project_v2' });
-  assert.equal(proj.state, 'ok');
-  assert.equal(proj.project_id, 'g-p-util');
-  assert.equal(proj.memory_scope, 'project_v2');
-  assert.equal(createdBody.memory_scope, 'project_v2');
+  const proj = await env.driver.createProject({ name: "Codex Utility", memory_scope: "project_v2" });
+  assert.equal(proj.state, "ok");
+  assert.equal(proj.project_id, "g-p-util");
+  assert.equal(proj.memory_scope, "project_v2");
+  assert.equal(createdBody.memory_scope, "project_v2");
 });
 
-test('thin option B resolves native account pin, deduplicates signatures, and rejects chat identity switch', async () => {
-  for (const verifiedAccounts of [['workspace'], [], ['personal', 'workspace']]) {
-    const f = structuredFixture({ apiMap: {
-      'GET /backend-api/me': { status: 200, body: opts => {
-        const expected = opts.headers?.['X-OpenAI-Expected-Account-Id'];
-        return !expected || verifiedAccounts.includes(expected) ? { id: 'authenticated-user' } : { error: 'account_changed' };
-      } },
-      'GET /backend-api/accounts/check/v4-2023-04-27': { status: 200, body: {
-        account_ordering: ['personal', 'workspace'],
-        accounts: {
-          personal: { account: { account_id: 'personal' } },
-          workspace: { account: { account_id: 'workspace' } },
-        },
-      } },
-    } });
-    const { first, second } = await f.run();
-    if (verifiedAccounts.length === 1) {
-      assert.equal(first.state, 'settled');
-      assert.equal(second.state, 'settled');
-      assert.equal(first.account_id, 'workspace');
-      assert.deepEqual(f.startCalls.map(call => call.expectedAccountId), ['workspace', 'workspace']);
-    } else {
-      assert.equal(first.error, 'pinned_account_unavailable');
-      assert.equal(f.startCalls.length, 0);
-    }
-  }
-
-  const switched = structuredFixture({
-    secondRound: false,
-    streamMutation(args) { args.onDecodedEvent({ update: { type: 'message', conversationId: 'wrong-chat' } }); },
-  });
-  assert.equal((await switched.run()).first.error, 'native_chat_changed');
-
-  // Duplicate tool signatures deduplicated cleanly and branching from prior remote_head works natively.
-  const f = structuredFixture({ secondRound: false });
-  const dupSig = { type: 'function', name: 'fixture', parameters: { type: 'object', properties: { x: { type: 'integer' } } } };
-  const first = await f.driver.sendMessage({
-    verify_identity: true,
-    wait_ms: 1000,
-    model: 'gpt-6-2-thinking',
-    local_function_signatures: [dupSig, dupSig],
-    native_candidate: { parent_message_id: 'root', messages: [{ id: 'u-1', role: 'user', parts: ['hello'] }] },
-  });
-  assert.equal(first.state, 'settled');
-  const retry = await f.driver.sendMessage({
-    verify_identity: true,
-    wait_ms: 1000,
-    chat_id: first.chat_id,
-    expected_account_id: first.account_id,
-    model: 'gpt-6-2-thinking',
-    local_function_signatures: [dupSig],
-    native_candidate: { parent_message_id: first.remote_head, messages: [{ id: 'u-2', role: 'user', parts: ['retry after cancel'] }] },
-  });
-  assert.equal(retry.state, 'settled');
-  assert.equal(f.startCalls[1].request.parent_message_id, first.remote_head);
-});
-
-test('thin option B propagates Retry-After from completion stream errors', async () => {
-  const env = createMockEnv({
-    apiMap: {
-      'GET /backend-api/me': { status: 200, body: { account_id: 'acc-rl' } },
-    },
-    completionBehavior(args) {
-      queueMicrotask(() => {
-        args.onError({
-          responseStatus: 429,
-          error: 'Too Many Requests',
-          responseHeaders: { 'Retry-After': '37' },
-        });
-      });
-      return { streamRequestId: 'stream-rl' };
-    },
-  });
-  const res = await env.driver.sendMessage({
-    model: 'gpt-6-2-thinking',
-    wait_ms: 1000,
-    native_candidate: { parent_message_id: 'root', messages: [{ id: 'u-rl', role: 'user', parts: ['hi'] }] },
-  });
-  assert.equal(res.state, 'error');
-  assert.equal(res.error, 'backend_http_429');
-  assert.equal(res.retry_after, '37');
-});
-
-test('live eligible snapshots grow before completion and freeze on rewrite', async () => {
+test("live eligible snapshots grow before completion and freeze on rewrite", async () => {
   let callbacks, ready;
-  const started = new Promise(resolve => { ready = resolve; });
+  const started = new Promise((resolve) => { ready = resolve; });
   const { driver, streamUpdates } = createMockEnv({
-    apiMap: { 'GET /backend-api/me': { status: 200, body: { account_id: 'acc-1' } } },
-    completionBehavior(args) { callbacks = args; ready(); return { streamRequestId: 'live' }; },
+    apiMap: { "GET /backend-api/me": { status: 200, body: { account_id: "acc-1" } } },
+    completionBehavior(args) { callbacks = args; ready(); return { streamRequestId: "live" }; },
   });
-  const pending = driver.sendMessage({ lane_id: 'live', prompt: 'test', push_events: true });
+  const pending = driver.sendMessage({ lane_id: "live", prompt: "test", push_events: true });
   await started;
-  const update = (id, channel, text, status = 'in_progress') => callbacks.onDecodedEvent({
-    update: { type: 'message', conversationId: 'live-chat', message: {
-      id, author: { role: 'assistant' }, channel, status,
-      content: { content_type: 'text', parts: [text] },
-    } },
+  const update = (id, channel, text, status = "in_progress") => callbacks.onDecodedEvent({
+    update: {
+      type: "message",
+      conversationId: "live-chat",
+      message: {
+        id,
+        author: { role: "assistant" },
+        channel,
+        status,
+        content: { content_type: "text", parts: [text] },
+      },
+    },
   });
-  for (const text of ['Look', 'Looking', 'Looking now']) update('r', 'analysis', text);
-  update('r', 'analysis', 'Looking now', 'finished_successfully');
-  for (const text of ['한', '한국어', '한국어 🚀']) update('a', 'final', text);
-  const live = streamUpdates.filter(e => e.streamable && !e.committed);
-  assert.deepEqual(live.map(e => e.text), ['Looking', 'Looking now', '한국어', '한국어 🚀']);
-  update('a', 'final', 'rewritten');
+  for (const text of ["Look", "Looking", "Looking now"]) update("r", "analysis", text);
+  update("r", "analysis", "Looking now", "finished_successfully");
+  for (const text of ["한", "한국어", "한국어 🚀"]) update("a", "final", text);
+  const live = streamUpdates.filter((e) => e.streamable && !e.committed);
+  assert.deepEqual(live.map((e) => e.text), ["Looking", "Looking now", "한국어", "한국어 🚀"]);
+  update("a", "final", "rewritten");
   callbacks.onComplete({ usage: { input_tokens: 12, output_tokens: 3 } });
   const settled = await pending;
-  assert.equal(settled.assistant_text, '한국어 🚀');
+  assert.equal(settled.assistant_text, "한국어 🚀");
   assert.equal(settled.usage.total_tokens, 15);
 });
 
-test('completion dispatch pacing and Retry-After reject without replay', async () => {
-  const times = [];
+test("Retry-After propagates and rejects subsequent dispatches without replay until expiry", async () => {
+  let count = 0;
   const { driver, startCalls } = createMockEnv({
-    apiMap: { 'GET /backend-api/me': { status: 200, body: { account_id: 'acc-1' } } },
+    apiMap: { "GET /backend-api/me": { status: 200, body: { account_id: "acc-1" } } },
     completionBehavior(args) {
-      times.push(Date.now());
-      if (times.length === 2) args.onError({ responseStatus: 429, responseHeaders: { 'Retry-After': '30' } });
-      else args.onComplete();
-      return { streamRequestId: 'pace' };
+      count += 1;
+      if (count === 1) {
+        args.onError({ responseStatus: 429, error: "Too Many Requests", responseHeaders: { "Retry-After": "30" } });
+      } else {
+        args.onComplete();
+      }
+      return { streamRequestId: `rl-${count}` };
     },
   });
-  const opts = { prompt: 'test', min_request_interval_ms: 60, push_events: true };
-  await driver.sendMessage({ ...opts, lane_id: 'p1' });
-  const failed = await driver.sendMessage({ ...opts, lane_id: 'p2' });
-  assert.equal(failed.retry_after, '30');
-  assert.ok(times[1] - times[0] >= 60);
-  const blocked = await driver.sendMessage({ ...opts, lane_id: 'p3' });
-  assert.equal(blocked.error, 'backend_http_429');
+  const failed = await driver.sendMessage({ prompt: "test", lane_id: "p1", push_events: true });
+  assert.equal(failed.state, "error");
+  assert.equal(failed.error, "backend_http_429");
+  assert.equal(failed.retry_after, "30");
+  const blocked = await driver.sendMessage({ prompt: "test", lane_id: "p2", push_events: true });
+  assert.equal(blocked.state, "error");
+  assert.equal(blocked.error, "backend_http_429");
   assert.ok(Number(blocked.retry_after) > 0);
-  assert.equal(startCalls.length, 2);
+  assert.equal(startCalls.length, 1);
 });

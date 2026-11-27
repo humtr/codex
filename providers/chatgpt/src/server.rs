@@ -4,7 +4,7 @@
 //! - Local authenticated `/control/*` control plane for `@TermuxChatGPT`
 //! - Optional capability-scoped `/viewer/{capability}/{*path}` noVNC proxy
 
-use crate::config::{HistoryConfig, ModelConfig};
+use crate::config::{HistoryConfig, McpConfig, ModelConfig};
 use crate::control::{control_router, ControlState};
 use crate::driver::DriverBackend;
 use crate::error::Result;
@@ -29,6 +29,7 @@ struct AppState {
     driver: Arc<dyn DriverBackend>,
     model_cfg: Arc<ModelConfig>,
     history_cfg: Arc<HistoryConfig>,
+    mcp_cfg: Arc<McpConfig>,
     threads: Arc<ResponseThreadMap>,
     catalog_path: Option<PathBuf>,
     live_models: LiveModelSet,
@@ -46,6 +47,7 @@ pub fn build_router(
         driver,
         model_cfg,
         history_cfg,
+        McpConfig::default(),
         control_token,
         viewer_slot,
         ResponseThreadMap::default(),
@@ -53,10 +55,12 @@ pub fn build_router(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn build_router_with_threads(
     driver: Arc<dyn DriverBackend>,
     model_cfg: ModelConfig,
     history_cfg: HistoryConfig,
+    mcp_cfg: McpConfig,
     control_token: String,
     viewer_slot: ViewerSlot,
     threads: ResponseThreadMap,
@@ -65,11 +69,12 @@ pub fn build_router_with_threads(
     let live_models =
         new_live_model_set(model_cfg.available.iter().cloned(), catalog_path.as_deref());
     let model_cfg = Arc::new(model_cfg);
-    let parallel_tool_calls = true;
+    let parallel_tool_calls = false;
     let app_state = AppState {
         driver: Arc::clone(&driver),
         model_cfg: Arc::clone(&model_cfg),
         history_cfg: Arc::new(history_cfg),
+        mcp_cfg: Arc::new(mcp_cfg),
         threads: Arc::new(threads),
         catalog_path: catalog_path.clone(),
         live_models: Arc::clone(&live_models),
@@ -109,7 +114,7 @@ async fn v1_models(State(st): State<AppState>) -> Json<Value> {
         &st.model_cfg,
         st.catalog_path.as_deref(),
         Some(&st.live_models),
-        true,
+        false,
     )
     .await
 }
@@ -134,6 +139,7 @@ async fn v1_responses(
         Arc::clone(&st.driver),
         &st.model_cfg,
         &st.history_cfg,
+        &st.mcp_cfg,
         Arc::clone(&st.threads),
         session_hint,
         turn_metadata,
