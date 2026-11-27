@@ -234,10 +234,30 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
   settled and the latest verifier for each registered check to have passed
   for the current subject. Older completed Works remain readable. A missing
   or unverified legacy verdict in an active Work requires a fresh check.
-- **Hard Circuit Breakers:** `R` enforces `max_wakeups` (default `20`),
-  `max_wall_secs`, `max_concurrent_workers`, minimum wake-up cooldown, and
-  `event_id` idempotency. On budget exhaustion, `R` transitions the `Work` to
-  `waiting_user` and notifies `F/Fn` instead of looping indefinitely.
+- **Hard Circuit Breakers, Rate-Limit Discipline & Admission Control:** `R`
+  enforces `max_wakeups` (default `20`), `max_wall_secs`,
+  `max_concurrent_workers`, a per-account ChatGPT concurrency cap (default `2`
+  active ChatGPT workers, configurable via `ORCH_MAX_CONCURRENT_CHATGPT`),
+  minimum wake-up cooldown, and `event_id` idempotency. On budget exhaustion,
+  `R` transitions the `Work` to `waiting_user` and notifies `F/Fn` instead of
+  looping indefinitely.
+  - **Local vs. remote polling separation:** The 2s relay tick observes local
+    state only (Shell exit receipts, Codex UDS daemon, and in-memory
+    `activeTurns` lanes). Remote ChatGPT reads for automatic Lead rollover are
+    never polled unconditionally every 2s; they run reactively on context-limit
+    signals or throttled (`>= 60s` per Work) only when `lead_rollover_turns > 0`
+    or after a Lead delivery settles.
+  - **Global `429` cooldown gate & 3-state delivery:** `backend_http_429`
+    (with `retry_after`, default `60s`) pauses remote ChatGPT calls across all
+    Works until cooldown expiry and is classified as `RejectedBeforeSend`
+    (clearing unsubmitted `dispatch` instead of sticking in
+    `delivery_receipt_unconfirmed`). Marker readback propagates provider errors
+    as errors rather than `not_found`, and bounded ambiguous delivery
+    reconciliation escalates to `waiting_user` + `termux-notification`.
+  - **Dispatch preflight & structured telemetry:** `orch_dispatch` fails fast
+    before creating worktrees when ChatGPT is in `429` cooldown or at the
+    ChatGPT concurrency cap. `termux-orch relay` emits concise secret-free
+    operational logs and exposes cooldown / rate-limit telemetry on `/healthz`.
 
 ---
 

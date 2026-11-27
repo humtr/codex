@@ -100,6 +100,7 @@ impl<'a> Rollover<'a> {
             || work.state == "waiting_user"
             || work.budget.wakeups_used >= work.budget.max_wakeups
             || now_unix().saturating_sub(work.created_at_unix) > work.budget.max_wall_secs
+            || self.owners.chatgpt_cooldown_remaining_secs() > 0
         {
             return None;
         }
@@ -111,13 +112,7 @@ impl<'a> Rollover<'a> {
         if error == "input_too_large" {
             return Some(SIZE_REJECTION.to_owned());
         }
-        if matches!(
-            error,
-            "context_length_exceeded"
-                | "context_window_exceeded"
-                | "conversation_too_long"
-                | "max_context_length_exceeded"
-        ) {
+        if is_context_limit_error(error) {
             return Some(format!("context limit ({error})"));
         }
         let count = chat["user_turn_count"]
@@ -430,6 +425,17 @@ impl<'a> Rollover<'a> {
     }
 }
 
+pub(crate) fn is_context_limit_error(code: &str) -> bool {
+    matches!(
+        code,
+        "input_too_large"
+            | "context_length_exceeded"
+            | "context_window_exceeded"
+            | "conversation_too_long"
+            | "max_context_length_exceeded"
+    )
+}
+
 pub(crate) fn rejected_before_send(receipt: &Value) -> bool {
     receipt["state"] == "error"
         && matches!(
@@ -443,5 +449,7 @@ pub(crate) fn rejected_before_send(receipt: &Value) -> bool {
                 | "completion_client_unavailable"
                 | "prompt_required"
                 | "generation_already_active"
+                | "backend_http_429"
+                | "retry_after_cooldown"
         )
 }

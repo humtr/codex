@@ -164,10 +164,16 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
     is marked as estimated. This is not a billing measurement or proof of
     backend context capacity. The catalog retains the 1M context, 95% effective
     window, and 800k auto-compact baseline.
-  - Server `Retry-After` deadlines reject subsequent dispatches until expiry;
-    no automatic replay. Legacy `[server] min_request_interval_ms` and
-    `[history] structured_native_return` config keys are accepted as ignored
-    compatibility fields so existing `chatgpt.toml` files load cleanly.
+  - Server `429` / `Retry-After` deadlines are enforced centrally at
+    `page_driver.js`'s `apiFetch()` gate (default minimum `60s` cooldown when
+    upstream omits `Retry-After`): subsequent backend reads, observations,
+    status refreshes, and dispatches fail fast with `backend_http_429` and
+    `retry_after` until expiry without automatic replay. `status()` caches
+    `/me` and `/models` with a bounded TTL so repeated local health/account
+    checks do not amplify backend traffic. Legacy `[server]
+    min_request_interval_ms` and `[history] structured_native_return` config
+    keys are accepted as ignored compatibility fields so existing
+    `chatgpt.toml` files load cleanly.
   - Client disconnect before remote settlement cancels only that lane via
     `stop_generation` without recording continuation. Remote settlement
     disarms cancellation, reconciles the final assembly, and persists up to 256

@@ -8,6 +8,7 @@ use crate::http_client::{
     parse_loopback_base_url, read_control_token, request_json, url_encode, HttpClientError,
     LoopbackEndpoint,
 };
+use crate::ledger::now_unix;
 use codex_daemon_client::DaemonClient;
 use serde_json::{json, Value};
 use std::env;
@@ -15,9 +16,13 @@ use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 pub const DEFAULT_PROVIDER_URL: &str = "http://127.0.0.1:4319";
+pub const DEFAULT_429_COOLDOWN_SECS: u64 = 60;
+pub const DEFAULT_MAX_CONCURRENT_CHATGPT: usize = 2;
 const READ_TIMEOUT: Duration = Duration::from_secs(20);
 const SEND_TIMEOUT: Duration = Duration::from_secs(90);
 const DAEMON_TIMEOUT: Duration = Duration::from_secs(15);
@@ -80,6 +85,7 @@ pub struct ChatGptObservation {
     pub remote_stream_status: Option<String>,
     pub assistant_text: String,
     pub error: Option<String>,
+    pub retry_after_secs: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -90,14 +96,92 @@ pub struct CodexObservation {
     pub turn_status: Option<String>,
 }
 
+#[derive(Debug, Default)]
+struct OwnerGate {
+    chatgpt_cooldown_until_unix: AtomicU64,
+    rate_limit_hits: AtomicU64,
+    remote_chatgpt_calls: AtomicU64,
+}
+
 #[derive(Debug, Clone)]
 pub struct OwnerClient {
     cfg: OwnerConfig,
+    gate: Arc<OwnerGate>,
+}
+
+pub fn parse_retry_after_secs(val: &Value) -> Option<u64> {
+    if let Some(n) = val.get("retry_after").and_then(Value::as_u64) {
+        return Some(n.clamp(1, 600));
+    }
+    if let Some(s) = val.get("retry_after").and_then(Value::as_str) {
+        if let Ok(n) = s.trim().parse::<u64>() {
+            return Some(n.clamp(1, 600));
+        }
+    }
+    None
+}
+
+pub fn is_rate_limited(val: &Value) -> bool {
+    val.get("state").and_then(Value::as_str) == Some("error")
+        && matches!(
+            val.get("error").and_then(Value::as_str),
+            Some("backend_http_429" | "retry_after_cooldown")
+        )
 }
 
 impl OwnerClient {
     pub fn new(cfg: OwnerConfig) -> Self {
-        Self { cfg }
+        Self {
+            cfg,
+            gate: Arc::new(OwnerGate::default()),
+        }
+    }
+
+    pub fn chatgpt_cooldown_until_unix(&self) -> u64 {
+        self.gate
+            .chatgpt_cooldown_until_unix
+            .load(Ordering::Acquire)
+    }
+
+    pub fn chatgpt_cooldown_remaining_secs(&self) -> u64 {
+        self.chatgpt_cooldown_until_unix()
+            .saturating_sub(now_unix())
+    }
+
+    pub fn rate_limit_hits(&self) -> u64 {
+        self.gate.rate_limit_hits.load(Ordering::Acquire)
+    }
+
+    pub fn remote_chatgpt_calls(&self) -> u64 {
+        self.gate.remote_chatgpt_calls.load(Ordering::Acquire)
+    }
+
+    pub fn note_chatgpt_rate_limit(&self, retry_after_secs: u64, context: &str) {
+        let secs = retry_after_secs.clamp(1, 600);
+        let target = now_unix().saturating_add(secs);
+        self.gate
+            .chatgpt_cooldown_until_unix
+            .fetch_max(target, Ordering::AcqRel);
+        let hits = self.gate.rate_limit_hits.fetch_add(1, Ordering::AcqRel) + 1;
+        eprintln!(
+            "{}",
+            json!({
+                "component": "termux-orch",
+                "event": "chatgpt_rate_limit_cooldown",
+                "context": context,
+                "cooldown_secs": secs,
+                "cooldown_until_unix": target,
+                "rate_limit_hits": hits
+            })
+        );
+    }
+
+    pub fn max_concurrent_chatgpt(&self) -> usize {
+        env::var("ORCH_MAX_CONCURRENT_CHATGPT")
+            .ok()
+            .and_then(|v| v.trim().parse::<usize>().ok())
+            .map(|n| n.clamp(1, 8))
+            .unwrap_or(DEFAULT_MAX_CONCURRENT_CHATGPT)
     }
 
     fn resolve_provider(&self) -> Result<(LoopbackEndpoint, String), String> {
@@ -120,7 +204,22 @@ impl OwnerClient {
         body: Option<&Value>,
         timeout: Duration,
     ) -> Result<Value, String> {
+        let exempt_from_cooldown = path == "/control/status" || path == "/control/stop";
+        if !exempt_from_cooldown {
+            let rem = self.chatgpt_cooldown_remaining_secs();
+            if rem > 0 {
+                return Ok(json!({
+                    "state": "error",
+                    "error": "backend_http_429",
+                    "detail": "OwnerGate cooldown active",
+                    "retry_after": rem.to_string()
+                }));
+            }
+        }
         let (ep, token) = self.resolve_provider()?;
+        self.gate
+            .remote_chatgpt_calls
+            .fetch_add(1, Ordering::AcqRel);
         let resp =
             request_json(&ep, method, path, Some(&token), body, timeout).map_err(|e| match e {
                 HttpClientError::Unavailable(c, d) | HttpClientError::Config(c, d) => {
@@ -130,8 +229,27 @@ impl OwnerClient {
                     format!("chatgpt_provider_transport_lost: {d}")
                 }
             })?;
+        if resp.status == 429 {
+            let secs = resp
+                .json
+                .as_ref()
+                .and_then(parse_retry_after_secs)
+                .unwrap_or(DEFAULT_429_COOLDOWN_SECS);
+            self.note_chatgpt_rate_limit(secs, path);
+            return Ok(json!({
+                "state": "error",
+                "error": "backend_http_429",
+                "detail": resp.raw_text.chars().take(300).collect::<String>(),
+                "retry_after": secs.to_string()
+            }));
+        }
         if (200..300).contains(&resp.status) {
-            Ok(resp.json.unwrap_or_else(|| json!({ "raw": resp.raw_text })))
+            let val = resp.json.unwrap_or_else(|| json!({ "raw": resp.raw_text }));
+            if is_rate_limited(&val) {
+                let secs = parse_retry_after_secs(&val).unwrap_or(DEFAULT_429_COOLDOWN_SECS);
+                self.note_chatgpt_rate_limit(secs, path);
+            }
+            Ok(val)
         } else {
             Err(format!(
                 "chatgpt_provider_http_{}: {}",
@@ -165,8 +283,16 @@ impl OwnerClient {
         marker: &str,
     ) -> Result<bool, String> {
         let chat = self.chatgpt_read_chat(chat_id, 100)?;
-        Ok(chat["state"] == "ok"
-            && project.is_none_or(|project| chat["gizmo_id"] == project)
+        if chat["state"] != "ok" {
+            let code = chat["error"].as_str().unwrap_or("read_chat_failed");
+            let detail = chat["detail"].as_str().unwrap_or("");
+            return Err(if detail.is_empty() {
+                code.to_owned()
+            } else {
+                format!("{code}: {detail}")
+            });
+        }
+        Ok(project.is_none_or(|project| chat["gizmo_id"] == project)
             && has_user_marker(&chat, marker))
     }
 
@@ -270,12 +396,14 @@ impl OwnerClient {
             .get("error")
             .and_then(Value::as_str)
             .map(ToOwned::to_owned);
+        let retry_after_secs = parse_retry_after_secs(&val);
         Ok(ChatGptObservation {
             state,
             generating,
             remote_stream_status,
             assistant_text,
             error,
+            retry_after_secs,
         })
     }
 

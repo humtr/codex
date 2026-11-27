@@ -1933,6 +1933,43 @@ impl OrchMcpHandler {
                 false,
             );
         }
+        if launch && backend == "chatgpt" {
+            let cooldown = self.owners.chatgpt_cooldown_remaining_secs();
+            if cooldown > 0 {
+                return (
+                    fail(
+                        "chatgpt_rate_limited",
+                        format!("ChatGPT owner is in 429 cooldown for {cooldown}s; retry after cooldown"),
+                    ),
+                    false,
+                );
+            }
+            let cap = self.owners.max_concurrent_chatgpt();
+            let active_chatgpt: usize = self
+                .ledger
+                .list_works()
+                .unwrap_or_default()
+                .iter()
+                .filter(|w| !w.is_terminal() && w.account_id == work.account_id)
+                .map(|w| {
+                    w.participants
+                        .iter()
+                        .filter(|p| !p.is_terminal() && p.backend == "chatgpt")
+                        .count()
+                })
+                .sum();
+            if active_chatgpt >= cap {
+                return (
+                    fail(
+                        "chatgpt_concurrency_limit",
+                        format!(
+                            "active ChatGPT participants for this account ({active_chatgpt}) reached cap ({cap}); wait for a participant to settle or set ORCH_MAX_CONCURRENT_CHATGPT"
+                        ),
+                    ),
+                    false,
+                );
+            }
+        }
         let now = now_unix();
         let mut participant = Participant {
             extra: Default::default(),
@@ -2691,6 +2728,16 @@ impl OrchMcpHandler {
                     Err(err) => return fail("ledger_read_failed", err.to_string()),
                 };
                 let active = works.iter().filter(|w| !w.is_terminal()).count();
+                let active_chatgpt: usize = works
+                    .iter()
+                    .filter(|w| !w.is_terminal())
+                    .map(|w| {
+                        w.participants
+                            .iter()
+                            .filter(|p| !p.is_terminal() && p.backend == "chatgpt")
+                            .count()
+                    })
+                    .sum();
                 let pending: usize = works.iter().map(|w| w.pending_deliveries.len()).sum();
                 let provider_ok = self.owners.chatgpt_status().is_ok();
                 json!({
@@ -2698,8 +2745,13 @@ impl OrchMcpHandler {
                     "state_root": self.ledger.root().display().to_string(),
                     "total_works": works.len(),
                     "active_works": active,
+                    "active_chatgpt_workers": active_chatgpt,
+                    "max_concurrent_chatgpt": self.owners.max_concurrent_chatgpt(),
                     "pending_deliveries": pending,
-                    "chatgpt_provider_reachable": provider_ok
+                    "chatgpt_provider_reachable": provider_ok,
+                    "chatgpt_cooldown_remaining_secs": self.owners.chatgpt_cooldown_remaining_secs(),
+                    "rate_limit_hits": self.owners.rate_limit_hits(),
+                    "remote_chatgpt_calls": self.owners.remote_chatgpt_calls()
                 })
             }
             "reconcile_delivery" => {
