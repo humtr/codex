@@ -30,10 +30,10 @@ qualification receipts have not been independently refreshed in this preflight.
 **Targeted refresh (2026-11-27):** the table above retains the earlier
 2026-11-25 snapshot for components not refreshed here. The selected upstream
 is now `releases/0.172.0-faf17b` (`codex-cli 0.172.0`). Signed live generations
-now active include Provider `0.1.0-71078da1` (`sequence=58`, PID `12899`)
-and `termux-orch` `0.1.0-71078da1` (`sequence=29`, relay PID `12477`,
-tunnel PID `12483`, MCP child PID `12498`). Both retain
-`0.1.0-7423a6dc` as previous. The selected Shell MCP is still
+now active include Provider `0.1.0-449b061c` (`sequence=60`, PID `12516`)
+and `termux-orch` `0.1.0-449b061c` (`sequence=31`, relay PID `12518`,
+tunnel PID `12515`, MCP child PID `12545`). Both retain
+`0.1.0-71078da1` as previous. The selected Shell MCP is still
 `0.1.0-eb19e206` (`sequence=16`); unrelated services were not restarted.
 The Wrapper remains the signed sequence-160 binary at `612d2261`.
 Actual target executable SHA-256 values match the signed rollout records below.
@@ -84,6 +84,37 @@ route. This refresh did not independently requalify unmodified components.
 ---
 
 ## Recent Verified Evidence (Newest-First)
+
+### 2026-11-27 — Signed `front_marker` 429 storm & early `sendMessage` cooldown fix
+
+- **Exact source:** `449b061c0b57874f74534202c0ac4a95fe3158a0` on `main`.
+  Bounded `termux-orch` `resolve_front_chat_by_marker` to check up to 5 recent
+  chats in the bound `project_id` + remaining budget up to 8 total from
+  top-level chats (down from 120 top-level-only reads) and abort immediately on
+  `backend_http_429` or active `OwnerGate` cooldown. Guarded
+  `providers/chatgpt/src/page_driver.js` `sendMessage()` with an early
+  `retryAfterUntil` cooldown check before `/me` and account-verification calls
+  so cooldown returns `backend_http_429` instead of `pinned_account_unavailable`.
+- **CI and publication:** [signed Provider release](https://github.com/humtr/codex/actions/runs/46005744266)
+  and [signed Orch release](https://github.com/humtr/codex/actions/runs/46005751252)
+  passed against `449b061c`. Installed via `./install.sh --require-signed --release wrapper --components chatgpt-provider,termux-orch --skip-upstream --no-setup`
+  after stopping the three target services cleanly; previous pointers retain
+  `0.1.0-71078da1`.
+
+  | Active target generation | Sequence | Executable SHA-256 | Live process |
+  | --- | ---: | --- | --- |
+  | `termux-orch 0.1.0-449b061c` | 31 | `72d50921f8a431cbb7a2e634b13f6e12c381d1c5a256a6bcca669261edb7f0c0` | relay 12518; MCP 12545 (tunnel 12515) |
+  | `chatgpt-provider 0.1.0-449b061c` | 60 | `0fe104db6b6dbe736b56559e6687106510d709e54f93ea3276ef5697cacf04f6` | 12516 |
+
+- **Live device state repair & checks:** Rebound persisted `humtr/codex`
+  project scope from stale `"Wrapper"` (`g-p-6b044ac30e8c8191bf4afa1fbda4603c`)
+  to `"Codex"` (`g-p-6b075b896c6881919d2575fb599973ff`) and cancelled orphaned
+  `work_6b8c4a48d7fbadee`. Local gates passed (`termux-orch` fmt/clippy +
+  12 unit + 15 E2E; `chatgpt-provider` fmt/clippy + 92 Rust + 17 `page_driver.test.mjs`).
+  Live `/proc/<pid>/exe` hashes match installed binaries, all 4 MCP tunnels
+  return `200 ready`, relay `/healthz` reports `ok=true` / `rate_limit_hits=0`,
+  and Provider `/control/status` reports `auth_state=authenticated`,
+  `completion_ready=true`, `pinned_send=true`, `active_turn_count=0`.
 
 ### 2026-11-27 — Signed Phase 1 presentation and Orch verdict repair
 
