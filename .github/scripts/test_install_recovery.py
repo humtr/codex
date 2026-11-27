@@ -14,6 +14,7 @@ import subprocess
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 INSTALL = Path(__file__).resolve().parents[2] / "install.sh"
 IS_ANDROID_LINKER = Path("/system/bin/linker64").is_file()
@@ -233,8 +234,12 @@ exec "$real" "$@"
         limit = time.monotonic() + timeout
         while time.monotonic() < limit:
             state_path = Path(f"/proc/{pid}/stat")
-            state = (state_path.read_text().split(") ")[-1].split()[0]
-                     if state_path.exists() else "X")
+            try:
+                state = state_path.read_text().rsplit(") ", 1)[-1].split()[0]
+            except (FileNotFoundError, ProcessLookupError):
+                # procfs may lose the process during open/read, even if the
+                # path existed just before. Still check the entire group.
+                state = "X"
             groups = subprocess.run(["ps", "-eo", "stat=,pgid="], text=True,
                                     capture_output=True, check=True).stdout
             live_group = any(
@@ -247,6 +252,30 @@ exec "$real" "$@"
                 return
             time.sleep(0.04)
         self.fail("owned updater or its process group did not quiesce")
+
+    def test_quiescence_handles_proc_exit_race_without_ignoring_live_group(self):
+        receipt = self.root / "race-receipt"
+        pid = os.getpid()
+        group = os.getpgrp()
+        receipt.write_text(f"pid={pid}\npgid={group}\n")
+        state_path = Path(f"/proc/{pid}/stat")
+        self.assertTrue(state_path.exists())
+        real_read_text = Path.read_text
+        failures = iter((ProcessLookupError(), FileNotFoundError()))
+
+        def read_text(path, *args, **kwargs):
+            if path == state_path:
+                raise next(failures)
+            return real_read_text(path, *args, **kwargs)
+
+        with mock.patch.object(Path, "read_text", autospec=True,
+                               side_effect=read_text), mock.patch.object(
+                                   subprocess, "run", side_effect=[
+                                       subprocess.CompletedProcess([], 0, f"S {group}\n"),
+                                       subprocess.CompletedProcess([], 0, f"Z {group}\n"),
+                                   ]) as ps:
+            self.await_updater_quiescent(receipt)
+            self.assertEqual(ps.call_count, 2)
 
     def interrupt(self, proc):
         self.assertIsNone(proc.poll(), self.log.read_text())
