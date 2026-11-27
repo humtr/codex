@@ -1256,3 +1256,125 @@ test("Retry-After propagates and rejects subsequent dispatches without replay un
   assert.ok(Number(blocked.retry_after) > 0);
   assert.equal(startCalls.length, 1);
 });
+
+test("resumed extension after early commit reuses one ext item instead of duplicating chunks", async () => {
+  const { driver } = createMockEnv({
+    apiMap: { "GET /backend-api/me": { status: 200, body: { account_id: "acc-1" } } },
+    completionBehavior({ onDecodedEvent, onComplete }) {
+      const emit = (msg) => onDecodedEvent({
+        update: { type: "message", conversationId: "ext-chat", message: msg },
+      });
+      // Initial chunk of msg-1, early-committed by an intervening commentary message (promoteInterimAnswer=true).
+      emit({
+        id: "msg-1",
+        author: { role: "assistant" },
+        channel: "final",
+        status: "in_progress",
+        content: { content_type: "text", parts: ["Part 1."] },
+      });
+      emit({
+        id: "commentary-1",
+        author: { role: "assistant" },
+        channel: "commentary",
+        status: "finished_successfully",
+        end_turn: false,
+        content: { content_type: "text", parts: ["Checking details..."] },
+      });
+      // msg-1 resumes streaming across multiple in_progress snapshots then finishes.
+      for (const tail of ["Part 2", "Part 2 grows", "Part 2 grows completely."]) {
+        emit({
+          id: "msg-1",
+          author: { role: "assistant" },
+          channel: "final",
+          status: "in_progress",
+          content: { content_type: "text", parts: [`Part 1.\n${tail}`] },
+        });
+      }
+      emit({
+        id: "msg-1",
+        author: { role: "assistant" },
+        channel: "final",
+        status: "finished_successfully",
+        end_turn: true,
+        content: { content_type: "text", parts: ["Part 1.\nPart 2 grows completely."] },
+      });
+      onComplete({});
+      return { streamRequestId: "ext-1" };
+    },
+  });
+  const settled = await driver.sendMessage({ lane_id: "ext-lane", prompt: "go", push_events: true });
+  assert.equal(settled.state, "settled");
+  const visible = settled.items.filter((i) => i.kind === "answer" || i.kind === "commentary");
+  assert.equal(visible.length, 3, `expected 3 items (initial + commentary + single resumed ext), got ${visible.length}`);
+  assert.equal(visible[0].text, "Part 1.");
+  assert.equal(visible[1].text, "Checking details...");
+  assert.equal(visible[2].text, "Part 2 grows completely.");
+});
+
+test("continuation syncs advanced ChatGPT App current_node and surfaces missed turns as commentary", async () => {
+  const env = createMockEnv({
+    apiMap: {
+      "GET /backend-api/me": { status: 200, body: { account_id: "acc-1" } },
+      "GET /backend-api/conversation/chat-sync": {
+        status: 200,
+        body: {
+          current_node: "app-asst-3",
+          gizmo_id: "g-p-codex",
+          mapping: {
+            "codex-asst-2": {
+              id: "codex-asst-2",
+              parent: "root",
+              message: { id: "codex-asst-2", author: { role: "assistant" }, content: { content_type: "text", parts: ["Turn 2 reply"] } },
+            },
+            "app-user-3": {
+              id: "app-user-3",
+              parent: "codex-asst-2",
+              message: { id: "app-user-3", author: { role: "user" }, content: { content_type: "text", parts: ["Continued from phone"] } },
+            },
+            "app-asst-3": {
+              id: "app-asst-3",
+              parent: "app-user-3",
+              message: { id: "app-asst-3", author: { role: "assistant" }, content: { content_type: "text", parts: ["Phone reply done"] } },
+            },
+          },
+        },
+      },
+    },
+    completionBehavior({ onDecodedEvent, onComplete }) {
+      onDecodedEvent({
+        update: {
+          type: "message",
+          conversationId: "chat-sync",
+          message: {
+            id: "codex-asst-4",
+            author: { role: "assistant" },
+            channel: "final",
+            status: "finished_successfully",
+            end_turn: true,
+            content: { content_type: "text", parts: ["Turn 4 using phone context"] },
+          },
+        },
+      });
+      onComplete({});
+      return { streamRequestId: "sync-4" };
+    },
+  });
+  const res = await env.driver.sendMessage({
+    lane_id: "sync-lane",
+    chat_id: "chat-sync",
+    project_id: "g-p-codex",
+    push_events: true,
+    native_candidate: {
+      parent_message_id: "codex-asst-2",
+      messages: [{ id: "u4", role: "user", parts: ["Now continue in TUI"] }],
+    },
+  });
+  assert.equal(res.state, "settled");
+  // Must attach Turn 4 onto app-asst-3 (NOT fork off codex-asst-2!)
+  assert.equal(env.startCalls[0].request.parent_message_id, "app-asst-3");
+  assert.equal(res.remote_head, "codex-asst-4");
+  const syncItem = res.items.find((i) => i.kind === "commentary" && i.id.startsWith("sync:"));
+  assert.ok(syncItem, "expected commentary sync item for missed ChatGPT App turn");
+  assert.match(syncItem.text, /Continued from phone/);
+  assert.match(syncItem.text, /Phone reply done/);
+});

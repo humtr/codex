@@ -80,21 +80,14 @@ pub fn is_background_utility_request(turn_meta: Option<&Value>, body: &Value) ->
         {
             return false;
         }
-        if !kinds[0].is_empty() {
-            return matches_utility_kind(&kinds[0]);
-        }
-        if kinds[1..].iter().any(|kind| matches_utility_kind(kind)) {
+        if kinds.iter().any(|kind| matches_utility_kind(kind)) {
             return true;
         }
     }
     if body
-        .get("tools")
-        .and_then(Value::as_array)
-        .is_some_and(|tools| !tools.is_empty())
-        || body
-            .get("previous_response_id")
-            .and_then(Value::as_str)
-            .is_some_and(|id| !id.is_empty())
+        .get("previous_response_id")
+        .and_then(Value::as_str)
+        .is_some_and(|id| !id.is_empty())
     {
         return false;
     }
@@ -104,14 +97,18 @@ pub fn is_background_utility_request(turn_meta: Option<&Value>, body: &Value) ->
         .unwrap_or("")
         .to_owned();
     if let Some(Value::Array(items)) = body.get("input") {
-        for item in items.iter().rev().take(4) {
+        // Multi-turn conversations (prior assistant/tool items) are never background utility calls.
+        for item in items {
             if item
                 .get("type")
                 .and_then(Value::as_str)
                 .is_some_and(|kind| kind.ends_with("_call") || kind.ends_with("_call_output"))
+                || item.get("role").and_then(Value::as_str) == Some("assistant")
             {
                 return false;
             }
+        }
+        for item in items.iter().rev().take(4) {
             prompt.push('\n');
             prompt.push_str(&extract_content_text(item.get("content")));
         }

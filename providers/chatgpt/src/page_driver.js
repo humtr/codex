@@ -825,6 +825,46 @@
     return chain;
   }
 
+  function extractMissedRemoteTurns(conv, afterNodeId) {
+    const mapping = conv && conv.mapping ? conv.mapping : {};
+    let nodeId = conv && conv.current_node ? conv.current_node : null;
+    if (!nodeId || !afterNodeId || nodeId === afterNodeId) return [];
+    const chain = [];
+    const seen = new Set();
+    let reachedAnchor = false;
+    while (nodeId && mapping[nodeId] && !seen.has(nodeId)) {
+      if (nodeId === afterNodeId) {
+        reachedAnchor = true;
+        break;
+      }
+      seen.add(nodeId);
+      const node = mapping[nodeId];
+      if (node.message) {
+        const extracted = extractTextFromMessage(node.message);
+        if (extracted && (extracted.role === "user" || extracted.role === "assistant")) {
+          chain.push({ ...extracted, id: extracted.id || nodeId });
+        }
+      }
+      nodeId = node.parent || null;
+    }
+    if (!reachedAnchor || chain.length === 0) return [];
+    chain.reverse();
+    return chain;
+  }
+
+  function formatMissedRemoteTurnsCommentary(turns) {
+    if (!Array.isArray(turns) || turns.length === 0) return "";
+    const parts = ["[ChatGPT 앱에서 이어진 대화 동기화]"];
+    for (const msg of turns) {
+      const label = msg.role === "user" ? "User" : "Assistant";
+      const body = typeof msg.text === "string" ? msg.text.trim() : "";
+      if (!body) continue;
+      parts.push(`**${label}:**\n${body}`);
+    }
+    if (parts.length <= 1) return "";
+    return truncate(parts.join("\n\n"), 8000);
+  }
+
   // Avoid ChatGPT backend name collisions with built-in container/runtime `exec`
   // and disambiguate same-named tools across namespaces without dropping any tool.
   // Extract a concise, secret-free progress label for server-side remote MCP
@@ -1490,31 +1530,47 @@
     let projectId =
       typeof opts.project_id === "string" && opts.project_id.trim() ? opts.project_id.trim() : null;
     let parentMessageId = candidate ? candidate.parent_message_id : newUuid();
+    let missedRemoteSyncText = "";
+    let syncedRemoteNode = null;
 
-    // Direct /control/send continuation resolves current_node lazily. Structured
-    // Responses turns already track `parent_message_id` locally and skip the
-    // redundant pre-dispatch GET /conversation/{id} round trip.
-    if (chatId && !candidate) {
+    // Resolve the live server `current_node` on continuations so turns sent from
+    // ChatGPT Web/Mobile App between Codex TUI turns are never forked/orphaned,
+    // and surface any missed remote turns as a concise opening commentary block.
+    if (chatId) {
       const convRes = await apiFetch(`/conversation/${encodeURIComponent(chatId)}`,
         opts.strict_project && dispatchAccountId
           ? { headers: { "X-OpenAI-Expected-Account-Id": dispatchAccountId } }
           : undefined);
-      if (!convRes.ok || !convRes.json) {
-        return {
-          state: "error",
-          error: `backend_http_${convRes.status}`,
-          detail: convRes.text || "failed to load target conversation",
-        };
-      }
-      if (typeof convRes.json.current_node === "string" && convRes.json.current_node) {
-        parentMessageId = convRes.json.current_node;
-      }
-      if ((opts.strict_project || (expectedAccountId && projectId)) &&
-          (convRes.json.gizmo_id || null) !== projectId) {
-        return { state: "error", error: "pinned_project_mismatch", detail: "target conversation belongs to a different project" };
-      }
-      if (!projectId && typeof convRes.json.gizmo_id === "string" && convRes.json.gizmo_id) {
-        projectId = convRes.json.gizmo_id;
+      if (!candidate) {
+        if (!convRes.ok || !convRes.json) {
+          return {
+            state: "error",
+            error: `backend_http_${convRes.status}`,
+            detail: convRes.text || "failed to load target conversation",
+          };
+        }
+        if (typeof convRes.json.current_node === "string" && convRes.json.current_node) {
+          parentMessageId = convRes.json.current_node;
+        }
+        if ((opts.strict_project || (expectedAccountId && projectId)) &&
+            (convRes.json.gizmo_id || null) !== projectId) {
+          return { state: "error", error: "pinned_project_mismatch", detail: "target conversation belongs to a different project" };
+        }
+        if (!projectId && typeof convRes.json.gizmo_id === "string" && convRes.json.gizmo_id) {
+          projectId = convRes.json.gizmo_id;
+        }
+      } else if (convRes.ok && convRes.json) {
+        const remoteNode = typeof convRes.json.current_node === "string" && convRes.json.current_node
+          ? convRes.json.current_node
+          : null;
+        if (remoteNode && remoteNode !== parentMessageId) {
+          const missed = extractMissedRemoteTurns(convRes.json, parentMessageId);
+          if (missed.length > 0) {
+            missedRemoteSyncText = formatMissedRemoteTurnsCommentary(missed);
+            syncedRemoteNode = remoteNode;
+          }
+          parentMessageId = remoteNode;
+        }
       }
     }
 
@@ -1640,6 +1696,8 @@
 
     const msgTextItemId = new Map();
     const committedMsgText = new Map();
+    const activeExtItemId = new Map();
+    const activeExtFullText = new Map();
     const committedCommentaryTexts = new Set();
     let lastCommittedCommentary = "";
     let suffixSeq = 0;
@@ -1660,7 +1718,18 @@
       item.committed = true;
       if (item.kind === "reasoning_summary") noteCommittedReasoning(item.text);
       else {
-        if (item.msgKey) committedMsgText.set(item.msgKey, item.text);
+        if (item.msgKey) {
+          if (activeExtItemId.get(item.msgKey) === item.id) {
+            const full = activeExtFullText.get(item.msgKey);
+            if (typeof full === "string" && full) {
+              committedMsgText.set(item.msgKey, full);
+            }
+            activeExtItemId.delete(item.msgKey);
+            activeExtFullText.delete(item.msgKey);
+          } else if (!committedMsgText.has(item.msgKey)) {
+            committedMsgText.set(item.msgKey, item.text);
+          }
+        }
         if (item.kind === "commentary") noteCommittedCommentary(item.text);
       }
       publishText(item);
@@ -1871,12 +1940,22 @@
         if (trimmedRaw.startsWith(priorCommitted)) {
           const suffix = trimmedRaw.slice(priorCommitted.length).replace(/^\r?\n+/, "");
           if (suffix.trim()) {
-            suffixSeq += 1;
-            const extId = `${msgTextItemId.get(msgKey) || `answer:${msgKey}`}:ext:${suffixSeq}`;
-            upsertTextItem(extId, targetKind, suffix, targetCommitted, msgKey, true);
-            if (targetCommitted) {
-              committedMsgText.set(msgKey, trimmedRaw);
+            let extId = activeExtItemId.get(msgKey);
+            if (!extId) {
+              suffixSeq += 1;
+              extId = `${msgTextItemId.get(msgKey) || `answer:${msgKey}`}:ext:${suffixSeq}`;
+              activeExtItemId.set(msgKey, extId);
             }
+            activeExtFullText.set(msgKey, trimmedRaw);
+            upsertTextItem(
+              extId,
+              targetKind,
+              suffix,
+              targetCommitted,
+              msgKey,
+              true,
+              !isCommentary && msg.channel === "final",
+            );
             syncDerivedAssistantText();
           }
         }
@@ -1963,6 +2042,17 @@
         turn.resolveDone();
         return { state: "error", error: "backend_http_429", detail: "Retry-After cooldown",
           retry_after: String(Math.ceil((retryAfterUntil - Date.now()) / 1000)) };
+      }
+      if (missedRemoteSyncText && syncedRemoteNode) {
+        upsertTextItem(
+          `sync:${chatId}:${syncedRemoteNode}`,
+          "commentary",
+          missedRemoteSyncText,
+          true,
+          null,
+          false,
+          false,
+        );
       }
       const handle = await client.startCompletionStream({
         request: requestPayload,

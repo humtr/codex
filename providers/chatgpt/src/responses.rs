@@ -152,7 +152,11 @@ pub async fn handle_responses_with_metadata(
         &known_slugs,
     );
     if utility {
-        if let Some(instant) = known_slugs.iter().find(|s| s.ends_with("-instant")) {
+        let preferred_instant = format!("{}-instant", requested_model.trim().to_ascii_lowercase());
+        if known_slugs.contains(&preferred_instant) {
+            model = preferred_instant;
+            effort = None;
+        } else if let Some(instant) = known_slugs.iter().filter(|s| s.ends_with("-instant")).max() {
             model = instant.clone();
             effort = None;
         } else if !known_slugs.is_empty()
@@ -541,6 +545,29 @@ mod tests {
             "input": [{"role": "user", "content": "fix bug"}]
         });
         assert!(is_background_utility_request(None, &title));
+
+        // Codex CLI may attach session tools and generic request_kind=turn on title_gen.
+        let title_with_tools = json!({
+            "tools": [{"type": "function", "name": "exec_command"}],
+            "input": [
+                {"role": "developer", "content": "<permissions instructions>...</permissions instructions>"},
+                {"role": "user", "content": "Generate a concise, single-line task title of at most 36 characters."}
+            ]
+        });
+        assert!(is_background_utility_request(
+            Some(&json!({"request_kind": "turn"})),
+            &title_with_tools
+        ));
+
+        // Multi-turn conversations (prior assistant message) must never be diverted.
+        let multi_turn = json!({
+            "input": [
+                {"role": "user", "content": "hello"},
+                {"role": "assistant", "content": "hi"},
+                {"role": "user", "content": "Please generate a concise title for this conversation"}
+            ]
+        });
+        assert!(!is_background_utility_request(None, &multi_turn));
     }
 
     #[test]
