@@ -506,9 +506,19 @@ impl OwnerClient {
         project: Option<&str>,
         cursor: Option<&str>,
     ) -> Result<Value, String> {
+        self.chatgpt_chat_page_limited(project, cursor, 30)
+    }
+
+    pub fn chatgpt_chat_page_limited(
+        &self,
+        project: Option<&str>,
+        cursor: Option<&str>,
+        limit: u64,
+    ) -> Result<Value, String> {
+        let lim = limit.clamp(1, 30);
         let mut path = project.map_or_else(
-            || "/control/chats?limit=30&archived=false".to_owned(),
-            |project| format!("/control/projects/{}?limit=30", url_encode(project)),
+            || format!("/control/chats?limit={lim}&archived=false"),
+            |project| format!("/control/projects/{}?limit={lim}", url_encode(project)),
         );
         if let Some(cursor) = cursor {
             path.push_str("&cursor=");

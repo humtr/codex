@@ -1444,4 +1444,205 @@ mod tests {
         let _ = srv.join();
         let _ = fs::remove_dir_all(&root);
     }
+
+    #[test]
+    fn front_marker_scan_checks_project_caps_reads_and_aborts_on_429() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        use std::thread;
+        use std::time::Duration;
+        let root = std::env::temp_dir().join(format!(
+            "termux-orch-marker-test-{}-{}",
+            std::process::id(),
+            ledger::now_unix()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let token_path = root.join("control.token");
+        fs::write(
+            &token_path,
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n",
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&token_path, fs::Permissions::from_mode(0o600)).unwrap();
+        }
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_c = stop.clone();
+        let read_calls = Arc::new(AtomicUsize::new(0));
+        let read_calls_c = read_calls.clone();
+        let return_429 = Arc::new(AtomicBool::new(false));
+        let return_429_c = return_429.clone();
+
+        let srv = thread::spawn(move || {
+            let proj_chats: Vec<Value> = (0..15)
+                .map(|i| json!({"id": format!("pchat-{i}"), "title": format!("P{i}")}))
+                .collect();
+            let top_chats: Vec<Value> = (0..15)
+                .map(|i| json!({"id": format!("tchat-{i}"), "title": format!("T{i}")}))
+                .collect();
+            while !stop_c.load(Ordering::Acquire) {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        let mut buf = [0u8; 8192];
+                        let n = stream.read(&mut buf).unwrap_or(0);
+                        let req = String::from_utf8_lossy(&buf[..n]);
+                        let first = req.lines().next().unwrap_or("");
+                        let body = if first.starts_with("GET /control/status") {
+                            json!({"state":"ok","pinned_send":true,"auth_state":"authenticated","account":{"account_id":"acc-m","id":"u1"}})
+                        } else if first.starts_with("GET /control/projects/proj-codex") {
+                            json!({"state":"ok","chats": proj_chats, "next_cursor": "more-p"})
+                        } else if first.starts_with("GET /control/projects") {
+                            json!({"state":"ok","projects":[{"id":"proj-codex","name":"Codex"}]})
+                        } else if first.starts_with("GET /control/chats?") {
+                            json!({"state":"ok","chats": top_chats, "next_cursor": "more-t"})
+                        } else if first.starts_with("GET /control/chats/") {
+                            read_calls_c.fetch_add(1, Ordering::AcqRel);
+                            let path_part = first.split_whitespace().nth(1).unwrap_or("");
+                            let cid = path_part
+                                .trim_start_matches("/control/chats/")
+                                .split('?')
+                                .next()
+                                .unwrap_or("");
+                            if return_429_c.load(Ordering::Acquire) {
+                                json!({"state":"error","error":"backend_http_429","retry_after":"60"})
+                            } else if cid == "pchat-1" {
+                                json!({"state":"ok","messages":[{"role":"user","text":"hello MARKER_IN_PROJECT"}]})
+                            } else if cid == "tchat-0" {
+                                json!({"state":"ok","messages":[{"role":"user","text":"hello MARKER_IN_TOP"}]})
+                            } else {
+                                json!({"state":"ok","messages":[{"role":"user","text":"other"}]})
+                            }
+                        } else {
+                            json!({"state":"ok"})
+                        };
+                        let payload = body.to_string();
+                        let resp = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                            payload.len(),
+                            payload
+                        );
+                        let _ = stream.write_all(resp.as_bytes());
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+
+        let ledger = ledger::Ledger::open(root.join("state")).unwrap();
+        let owners = owners::OwnerClient::new(owners::OwnerConfig {
+            provider_url: format!("http://{addr}"),
+            token_path: Some(root.join("control.token")),
+            home: root.clone(),
+            tmpdir: root.clone(),
+            codex_socket_override: None,
+            notify_cmd: Some("true".to_owned()),
+        });
+        let mut handler = mcp::OrchMcpHandler::new(ledger, owners, root.join("receipts"));
+
+        // 1. Marker inside bound project (pchat-1) is resolved and bounded to <= 8 reads.
+        let (res_proj, err_proj) = handler.call_tool(
+            "orch_work",
+            &json!({
+                "action": "create",
+                "title": "Project front test",
+                "goal": "Find project front",
+                "tier": "direct",
+                "project_scope": "humtr/codex",
+                "project_name": "Codex",
+                "front_marker": "MARKER_IN_PROJECT",
+                "call_id": "m-1"
+            }),
+        );
+        assert!(!err_proj, "{res_proj}");
+        assert_eq!(res_proj["front_chat_id"], "pchat-1", "{res_proj}");
+        assert!(
+            read_calls.load(Ordering::Acquire) <= 8,
+            "expected <= 8 reads, got {}",
+            read_calls.load(Ordering::Acquire)
+        );
+
+        // 2. Marker in top-level chat (tchat-0) is STILL found even when bound project has 15 chats.
+        read_calls.store(0, Ordering::Release);
+        let (res_top, err_top) = handler.call_tool(
+            "orch_work",
+            &json!({
+                "action": "create",
+                "title": "Top-level front test",
+                "goal": "Find top front",
+                "tier": "direct",
+                "project_scope": "humtr/codex",
+                "front_marker": "MARKER_IN_TOP",
+                "call_id": "m-2"
+            }),
+        );
+        assert!(!err_top, "{res_top}");
+        assert_eq!(res_top["front_chat_id"], "tchat-0", "{res_top}");
+        assert!(
+            read_calls.load(Ordering::Acquire) <= 8,
+            "expected <= 8 reads, got {}",
+            read_calls.load(Ordering::Acquire)
+        );
+
+        // 3. Missing marker across 30 chats probes at most 8 chats total (never 120).
+        read_calls.store(0, Ordering::Release);
+        let (res_miss, err_miss) = handler.call_tool(
+            "orch_work",
+            &json!({
+                "action": "create",
+                "title": "Missing marker test",
+                "goal": "No marker anywhere",
+                "tier": "direct",
+                "project_scope": "humtr/codex",
+                "front_marker": "MARKER_ABSENT",
+                "call_id": "m-3"
+            }),
+        );
+        assert!(!err_miss, "{res_miss}");
+        assert!(res_miss["front_chat_id"].is_null(), "{res_miss}");
+        assert_eq!(
+            read_calls.load(Ordering::Acquire),
+            8,
+            "missing marker must cap probes at exactly 8"
+        );
+
+        // 4. HTTP 429 during marker probe aborts immediately on the 1st read (no cascading storm).
+        read_calls.store(0, Ordering::Release);
+        return_429.store(true, Ordering::Release);
+        let (res_429, err_429) = handler.call_tool(
+            "orch_work",
+            &json!({
+                "action": "create",
+                "title": "429 abort test",
+                "goal": "Stop on 429",
+                "tier": "direct",
+                "project_scope": "humtr/codex",
+                "front_marker": "MARKER_429",
+                "call_id": "m-4"
+            }),
+        );
+        assert!(!err_429, "{res_429}");
+        assert_eq!(
+            read_calls.load(Ordering::Acquire),
+            1,
+            "429 during front_marker scan must abort immediately after 1 read"
+        );
+        assert!(
+            res_429["warnings"].as_array().is_some_and(|w| w
+                .iter()
+                .any(|v| v.as_str().unwrap_or("").contains("backend_http_429"))),
+            "warnings should surface backend_http_429: {res_429}"
+        );
+
+        stop.store(true, Ordering::Release);
+        let _ = srv.join();
+        let _ = fs::remove_dir_all(&root);
+    }
 }

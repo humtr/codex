@@ -1513,6 +1513,14 @@
     };
     const initialBlock = blockedLane();
     if (initialBlock) return initialBlock;
+    if (Date.now() < retryAfterUntil) {
+      return {
+        state: "error",
+        error: "backend_http_429",
+        detail: "Retry-After cooldown",
+        retry_after: String(remainingRetryAfterSecs()),
+      };
+    }
 
     const shouldWaitForBoot =
       isElectronAppOrigin() || Boolean(location && location.protocol === "about:");

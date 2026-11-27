@@ -1298,6 +1298,16 @@ test("HTTP 429 without Retry-After header enforces default cooldown across readC
   assert.equal(obs.error, "backend_http_429");
   assert.ok(Number(obs.retry_after) > 0);
   assert.equal(readCalls, 1, "cooldown must block subsequent backend-api reads");
+
+  const sendDuringCooldown = await driver.sendMessage({
+    prompt: "hello",
+    expected_account_id: "acc-1",
+    lane_id: "send-rl-1",
+    push_events: true,
+  });
+  assert.equal(sendDuringCooldown.state, "error");
+  assert.equal(sendDuringCooldown.error, "backend_http_429");
+  assert.ok(Number(sendDuringCooldown.retry_after) > 0);
 });
 
 test("resumed extension after early commit reuses one ext item instead of duplicating chunks", async () => {

@@ -313,47 +313,89 @@ impl OrchMcpHandler {
         )
     }
 
-    fn resolve_front_chat_by_marker(&self, marker: &str) -> Result<String, String> {
-        let mut cursor: Option<String> = None;
-        let mut matched = None;
-        let mut visited = std::collections::HashSet::new();
-        for _ in 0..4 {
-            let page = self.owners.chatgpt_chat_page(None, cursor.as_deref())?;
-            let chats = page["chats"].as_array().ok_or("chat list missing chats")?;
-            for row in chats {
-                let Some(cid) = row["id"].as_str() else {
-                    continue;
-                };
-                if let Ok(chat) = self.owners.chatgpt_read_chat(cid, 6) {
-                    if chat["messages"].as_array().is_some_and(|messages| {
-                        messages.iter().any(|m| {
-                            m["role"] == "user"
-                                && m["text"].as_str().is_some_and(|text| text.contains(marker))
-                        })
-                    }) {
-                        if matched.as_deref().is_some_and(|prior| prior != cid) {
-                            return Err(
-                                "front_marker_ambiguous: multiple chats contain the marker"
-                                    .to_owned(),
-                            );
+    fn resolve_front_chat_by_marker(
+        &self,
+        marker: &str,
+        project_id: Option<&str>,
+    ) -> Result<String, String> {
+        const MAX_MARKER_PROBE_CHATS: usize = 8;
+        let rem = self.owners.chatgpt_cooldown_remaining_secs();
+        if rem > 0 {
+            return Err(format!(
+                "backend_http_429: ChatGPT rate-limit cooldown active ({rem}s remaining)"
+            ));
+        }
+
+        // Collect at most MAX_MARKER_PROBE_CHATS recent candidates: check up to
+        // 5 recent chats in the bound project first (so Front chats opened
+        // inside a Project are found immediately), then fill the remaining
+        // budget (at least 3) from top-level chats, deduplicated by chat_id.
+        const PROJECT_PROBE_SLOTS: usize = 5;
+        let mut candidates: Vec<String> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        let mut sources: Vec<(Option<&str>, usize)> = Vec::new();
+        if let Some(pid) = project_id.map(str::trim).filter(|s| !s.is_empty()) {
+            sources.push((Some(pid), PROJECT_PROBE_SLOTS));
+        }
+        sources.push((None, MAX_MARKER_PROBE_CHATS));
+        for (src, max_from_src) in sources {
+            let remaining = MAX_MARKER_PROBE_CHATS.saturating_sub(candidates.len());
+            if remaining == 0 {
+                break;
+            }
+            let take_n = max_from_src.min(remaining);
+            let page = self
+                .owners
+                .chatgpt_chat_page_limited(src, None, take_n as u64)?;
+            if crate::owners::is_rate_limited(&page) {
+                return Err(
+                    "backend_http_429: rate limited while listing chats for front_marker"
+                        .to_owned(),
+                );
+            }
+            let mut added_from_src = 0usize;
+            if let Some(chats) = page["chats"].as_array() {
+                for row in chats {
+                    let Some(cid) = row["id"].as_str() else {
+                        continue;
+                    };
+                    if seen.insert(cid.to_owned()) {
+                        candidates.push(cid.to_owned());
+                        added_from_src += 1;
+                        if added_from_src >= take_n || candidates.len() >= MAX_MARKER_PROBE_CHATS {
+                            break;
                         }
-                        matched = Some(cid.to_owned());
                     }
                 }
             }
-            let Some(next) = page["next_cursor"]
-                .as_str()
-                .filter(|value| !value.is_empty())
-            else {
-                break;
-            };
-            if !visited.insert(next.to_owned()) {
-                break;
+        }
+
+        let mut matched: Option<String> = None;
+        for cid in candidates {
+            let chat = self.owners.chatgpt_read_chat(&cid, 6)?;
+            if crate::owners::is_rate_limited(&chat) {
+                return Err("backend_http_429: rate limited while scanning front_marker".to_owned());
             }
-            cursor = Some(next.to_owned());
+            if chat["state"] != "ok" {
+                continue;
+            }
+            if chat["messages"].as_array().is_some_and(|messages| {
+                messages.iter().any(|m| {
+                    m["role"] == "user"
+                        && m["text"].as_str().is_some_and(|text| text.contains(marker))
+                })
+            }) {
+                if matched.as_deref().is_some_and(|prior| prior != cid) {
+                    return Err(
+                        "front_marker_ambiguous: multiple recent chats contain the marker"
+                            .to_owned(),
+                    );
+                }
+                matched = Some(cid);
+            }
         }
         matched.ok_or_else(|| {
-            "front_marker_not_found: no recent chat contained the user message marker".to_owned()
+            "front_marker_not_found: no recent chat contained the user message marker (pass front_chat_id directly or ensure the marker is in your latest message)".to_owned()
         })
     }
 
@@ -909,7 +951,7 @@ impl OrchMcpHandler {
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
             {
-                match self.resolve_front_chat_by_marker(marker) {
+                match self.resolve_front_chat_by_marker(marker, project_id.as_deref()) {
                     Ok(cid) => front_chat_id = Some(cid),
                     Err(e) => warnings.push(e),
                 }
@@ -1347,7 +1389,7 @@ impl OrchMcpHandler {
             .map(str::trim)
             .filter(|s| !s.is_empty())
         {
-            match self.resolve_front_chat_by_marker(marker) {
+            match self.resolve_front_chat_by_marker(marker, work.project_id.as_deref()) {
                 Ok(cid) => cid,
                 Err(e) => return (fail("front_resolve_failed", e), false),
             }
