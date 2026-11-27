@@ -26,6 +26,7 @@ not a claim that the old Native qualification matrix passed.
 | --- | --- |
 | [Structured context and retired Native-return milestone](#10-chatgpt-provider-native-tool-return-and-structured-context) | Superseded execution plan; retain its receipts and the open continuity, migration, approval-boundary and recovery gates. The current MCP route is authoritative; do not restore retired local tools to satisfy historical tests. |
 | [Codex presentation improvements](#11-deferred-codex-presentation-improvements) | **Phase 1 preparation selected (2026-11-27).** Current-source baseline and regression oracle prepared; candidate implementation is the next step. Isolated preparation/source qualification need not wait for obsolete Native-only gates. |
+| [Codex `<oai-mem-citation>` leak & cross-entrypoint memory boundary](#12-codex-oai-mem-citation-leak-and-cross-entrypoint-memory-boundary) | **Tracked follow-up (2026-11-27).** Forensically confirmed on `6b08f054` (`session:01a21ae8-...`); three-layer fix scoped across `-p chatgpt` profile config, `providers/chatgpt`, and Codex-to-ChatGPT MCP bridges (`termux-codex` / `termux-orch`). |
 
 `HANDOFF.md` is the active work order; the earlier work order remains available
 verbatim in Git at `3f12f956:HANDOFF.md`. No previously unproven gate is promoted
@@ -941,3 +942,91 @@ candidate authenticated E2E, Android package, publication, activation and
 physical UI remain distinct. Preparation ran only standalone renderer
 tests/oracle and read-only identity checks; it did not change product code,
 run a new live model turn, build a release candidate or qualify a physical UI.
+
+---
+
+## 12. Codex oai-mem-citation leak and cross-entrypoint memory boundary
+
+**Observed incident (2026-11-27):** A raw Codex memory citation block
+(`<oai-mem-citation><citation_entries>MEMORY.md:24-26|note=[...]</citation_entries><rollout_ids>01a2073f-...</rollout_ids></oai-mem-citation>`)
+appeared verbatim at the end of a visible assistant reply in ChatGPT Project
+`"Codex"`, chat `6b08f054-ae90-83ec-b274-59f5e501f0b2` (message index 17).
+
+### Root cause (verified empirically)
+
+1. **Origin:** Official Codex `0.172.0` injects a `role: "developer"` message
+   (`31,146` bytes in `session:01a21ae8-ff5a-7e90-860f-c90b9187b685`, rollout
+   line 2) containing `~/.codex/memories/memory_summary.md` plus Codex's
+   internal `Memory citation requirements:` prompt instructing the model to
+   append `<oai-mem-citation>...</oai-mem-citation>` at the end of its final
+   reply whenever any memory entry is used.
+2. **Why Codex TUI hides it but ChatGPT leaks it:** Official Codex TUI parses
+   and strips `<oai-mem-citation>` into internal `MemoryCitation` metadata
+   before display. However, `providers/chatgpt/src/turn.rs` forwards Codex's
+   `role: "developer"` message as a durable ChatGPT `developer` message on the
+   pinned conversation (`6b08f054`). When the user opens or continues that
+   conversation in ChatGPT App/Web, the model still follows the durable
+   `developer` directive and appends `<oai-mem-citation>`, which ChatGPT UI
+   does not recognize (ChatGPT only handles `<MemoryCite/>`) and renders raw.
+3. **Secondary leak & token overhead:**
+   - The same `31 KB` Codex memory payload + citation directive is injected on
+     `codex -p chatgpt` turns even though ChatGPT already owns ChatGPT /
+     Project memory and cannot read `~/.codex/memories/MEMORY.md` directly from
+     the ChatGPT App entrypoint.
+   - Official Codex workers (`provider=openai`, confirmed in
+     `rollout-2026-11-25T16-03-56-...`) also emit `<oai-mem-citation>` in
+     `assistant` `final_answer`. When `@TermuxCodex` (`mcp/termux-codex`) or
+     `@TermuxOrch` (`mcp/termux-orch`) relays a Codex worker's final text back
+     to a ChatGPT Lead/Front chat without stripping `<oai-mem-citation>`, the
+     raw XML can also leak into ChatGPT chats.
+   - `providers/chatgpt/src/presentation.rs` currently strips `<MemoryCite>`
+     only and does not recognize `<oai-mem-citation>` (affecting commentary /
+     App-sync display paths).
+
+### Improvement plan (3 layers, ordered by authority)
+
+1. **Layer 1 — Codex `-p chatgpt` profile policy (primary prevention, zero
+   upstream patching):**
+   - Verify exact upstream Codex `0.172.0` memory configuration keys
+     (e.g., `[memories]` / `use_memories` / `generate_memories` /
+     `no_memories_if_mcp_or_web_search` in `~/.codex/chatgpt.config.toml`) so
+     `codex -p chatgpt` avoids injecting Codex's local `MEMORY.md` +
+     `<oai-mem-citation>` instructions into ChatGPT-hosted chats by default
+     (ChatGPT / Project memory remains the single memory authority for ChatGPT
+     sessions).
+   - Document the recommended `chatgpt.config.toml` setting in `README.md` and
+     `docs/spec/CHATGPT_PROVIDER.md`.
+2. **Layer 2 — `providers/chatgpt` ingress & presentation guard:**
+   - **Ingress (`turn.rs`):** When forwarding Codex `role: "developer"` context
+     to ChatGPT, strip (or neutralize) the Codex-only
+     `Memory citation requirements:` `<oai-mem-citation>` directive block
+     (leaving unrelated developer instructions, `<skills_instructions>`,
+     `<permissions instructions>`, and `<collaboration_mode>` intact) so even
+     if a user explicitly enables Codex memories on `-p chatgpt`, ChatGPT is
+     never instructed to emit unrenderable Codex XML into ChatGPT chats.
+   - **Presentation (`presentation.rs`, can fold into §11 Phase 1):** Strip
+     complete `<oai-mem-citation>...</oai-mem-citation>` blocks outside
+     fenced/inline/indented code so commentary/App-synced messages never
+     surface raw XML in Codex TUI, while preserving literal code examples
+     verbatim.
+3. **Layer 3 — Cross-entrypoint MCP relay sanitation (`mcp/termux-codex`,
+   `mcp/termux-orch`):**
+   - Strip trailing/embedded Codex `<oai-mem-citation>...</oai-mem-citation>`
+     blocks (outside code fences) when summarizing or forwarding Codex worker
+     `final_answer` / `report_text` to ChatGPT Lead/Front chats, while
+     preserving raw Codex rollouts untouched on disk.
+
+### Acceptance criteria
+
+- A `codex -p chatgpt` session continued in ChatGPT App never emits
+  `<oai-mem-citation>` in ChatGPT replies even when memory-related topics are
+  discussed.
+- Unit tests in `providers/chatgpt`, `mcp/termux-codex`, and `mcp/termux-orch`
+  verify: (a) Codex `Memory citation requirements:` block is stripped cleanly
+  without truncating `<skills_instructions>` / `<permissions instructions>` /
+  user content; (b) `<oai-mem-citation>...</oai-mem-citation>` outside code
+  blocks is stripped while fenced/inline code examples containing
+  `<oai-mem-citation>` are preserved verbatim.
+- Update `docs/spec/CHATGPT_PROVIDER.md` (and `docs/spec/BRIDGE.md` /
+  `docs/spec/ORCHESTRATION.md` if MCP payload sanitation changes observable
+  contract) before code merge.
