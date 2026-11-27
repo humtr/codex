@@ -1,230 +1,82 @@
-//! Narrow ChatGPT DIL (Declarative Interface Language) to Codex-native GFM Markdown projection.
-//!
-//! Converts only allowlisted ChatGPT UI layout/component tags outside code blocks and inline
-//! code spans into clean CommonMark/GFM structures that official Codex TUI renders natively
-//! (links, bold status badges, tables, horizontal rules, blockquotes). Never mutates fenced
-//! code blocks, inline code spans, unknown HTML/XML, Rust generics, or tool arguments.
+//! Source-aware, static presentation projection. No executable UI or JS runtime.
+#[path = "presentation/render.rs"]
+mod render;
 
-/// Render allowlisted ChatGPT DIL components into Codex-native GFM Markdown.
+#[derive(Clone, Debug, PartialEq)]
+enum Value {
+    Null,
+    Bool(bool),
+    Number(String),
+    String(String),
+    Array(Vec<Value>),
+    Object(Vec<(String, Value)>),
+    Unknown(String),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum Node {
+    Text(String),
+    Element {
+        name: String,
+        attrs: Vec<(String, Value)>,
+        children: Vec<Node>,
+    },
+}
+
+fn append_nodes(out: &mut Vec<Node>, nodes: Vec<Node>) {
+    for node in nodes {
+        match (out.last_mut(), node) {
+            (Some(Node::Text(prev)), Node::Text(next)) => prev.push_str(&next),
+            (_, node) => out.push(node),
+        }
+    }
+}
+
+type Locals = Vec<(String, Value)>;
+
 pub fn render_for_codex_tui(input: &str) -> String {
-    if !input.contains('<') && !input.contains('{') {
-        return input.to_owned();
-    }
-
-    let mut out = String::with_capacity(input.len());
-    let mut fence: Option<(char, usize)> = None;
-    let mut prose_buf = String::new();
-    let mut saw_dil = false;
-
-    for line in input.split_inclusive('\n') {
-        let trimmed = line.trim_start_matches(' ');
-        let indent = line.len() - trimmed.len();
-        let first = trimmed.chars().next().unwrap_or('\0');
-        let run = trimmed.chars().take_while(|&c| c == first).count();
-
-        if indent <= 3 && matches!(first, '`' | '~') && run >= 3 {
-            match fence {
-                None => {
-                    if !prose_buf.is_empty() {
-                        let (rendered, changed) = render_prose_segment(&prose_buf);
-                        saw_dil |= changed;
-                        out.push_str(&rendered);
-                        prose_buf.clear();
-                    }
-                    fence = Some((first, run));
-                    out.push_str(line);
-                    continue;
-                }
-                Some((ch, n)) if ch == first && run >= n && trimmed[run..].trim().is_empty() => {
-                    fence = None;
-                    out.push_str(line);
-                    continue;
-                }
-                _ => {}
-            }
-        }
-
-        if fence.is_some() {
-            out.push_str(line);
-        } else {
-            prose_buf.push_str(line);
-        }
-    }
-
-    if !prose_buf.is_empty() {
-        let (rendered, changed) = render_prose_segment(&prose_buf);
-        saw_dil |= changed;
-        out.push_str(&rendered);
-    }
-
-    if saw_dil {
-        out
-    } else {
-        input.to_owned()
-    }
+    project(input, false)
 }
-
-fn render_prose_segment(input: &str) -> (String, bool) {
-    let mut out = String::with_capacity(input.len());
-    let mut changed = false;
-    let bytes = input.as_bytes();
-    let mut i = 0usize;
-    let mut inline_code = 0usize;
-
-    while i < bytes.len() {
-        let rest = &input[i..];
-
-        // Track inline code spans verbatim.
-        if bytes[i] == b'`' {
-            let n = rest.bytes().take_while(|&b| b == b'`').count();
-            if inline_code == 0 {
-                inline_code = n;
-            } else if inline_code == n {
-                inline_code = 0;
-            }
-            out.push_str(&rest[..n]);
-            i += n;
-            continue;
-        }
-
-        if inline_code > 0 {
-            let ch = rest.chars().next().unwrap();
-            out.push(ch);
-            i += ch.len_utf8();
-            continue;
-        }
-
-        // Drop unevaluated template expressions, never execute them. Remove
-        // surrounding emphasis when the expression is its entire content.
-        let emphasis = if rest.starts_with("**{") {
-            2
-        } else if rest.starts_with("*{") {
-            1
-        } else {
-            0
-        };
-        if let Some(end) = template_end(&rest[emphasis..]) {
-            let end = end + emphasis;
-            if emphasis == 0 || rest[end..].starts_with(&rest[..emphasis]) {
-                changed = true;
-                i += end + emphasis;
-                continue;
-            }
-        }
-
-        if bytes[i] == b'<' {
-            if let Some((consumed, replacement)) = try_render_dil_element(rest) {
-                changed = true;
-                out.push_str(&replacement);
-                i += consumed;
-                continue;
-            }
-        }
-
-        let ch = rest.chars().next().unwrap();
-        out.push(ch);
-        i += ch.len_utf8();
-    }
-
-    (out, changed)
-}
-
-// Recognize directive syntax or a JS member/call expression, not ordinary
-// braces such as `{name}`, LaTeX groups, JSON objects or Rust blocks.
-fn template_end(rest: &str) -> Option<usize> {
-    let body = rest.strip_prefix('{')?;
-    let mut depth = 1;
-    let mut quote = None;
-    let mut escaped = false;
-    for (i, ch) in body.char_indices() {
-        if let Some(q) = quote {
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == q {
-                quote = None;
-            }
-            continue;
-        }
-        match ch {
-            '"' | '\'' | '`' => quote = Some(ch),
-            '{' => depth += 1,
-            '}' => {
-                depth -= 1;
-                if depth == 0 {
-                    let expr = body[..i].trim();
-                    let member = expr.split_once('.').is_some_and(|(root, tail)| {
-                        !root.is_empty()
-                            && root.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-                            && tail.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
-                            && (!expr.contains(char::is_whitespace) || expr.contains('('))
-                    });
-                    return (expr.starts_with(['@', '#', ':', '/']) || member).then_some(i + 2);
-                }
-            }
-            _ => {}
-        }
-    }
-    None
-}
-
-/// A conservative stable projection: do not publish an unfinished template,
-/// component or code construct. The same renderer handles the settled text.
 pub fn render_stream_prefix(input: &str) -> String {
-    let mut i = 0;
-    while i < input.len() {
-        let rest = &input[i..];
-        let ch = rest.chars().next().unwrap();
-        match ch {
-            '<' => {
-                if let Some((n, _)) = try_render_dil_element(rest) {
-                    i += n;
-                    continue;
-                }
-                // Unknown complete HTML/generics pass through at settlement;
-                // a partial tag may still become an allowlisted component.
-                break;
-            }
-            '{' => {
-                if let Some(n) = template_end(rest) {
-                    i += n;
-                    continue;
-                }
-                break;
-            }
-            '*' => {
-                // An emphasis marker might introduce an unevaluated expression.
-                let n = rest.bytes().take_while(|&b| b == b'*').count();
-                if n == rest.len() {
-                    break;
-                }
-                if rest[n..].starts_with('{') {
-                    let Some(end) = template_end(&rest[n..]) else {
-                        break;
-                    };
-                    if !rest[n + end..].starts_with(&rest[..n]) {
-                        break;
-                    }
-                    i += n + end + n;
-                    continue;
-                }
-            }
-            // Buffer code constructs as a whole rather than misread literal
-            // DIL in a fence or inline span. Ordinary prose streams immediately.
-            '`' | '~' => break,
-            _ => {}
-        }
-        i += ch.len_utf8();
-    }
-    render_for_codex_tui(&input[..i])
+    project(input, true)
 }
 
-const DIL_BLOCK_TAGS: &[&str] = &[
+fn project(input: &str, streaming: bool) -> String {
+    let mut parser = Parser {
+        source: input,
+        pos: 0,
+        locals: Vec::new(),
+    };
+    let mut out = String::with_capacity(input.len());
+    while parser.pos < input.len() {
+        let start = parser.pos;
+        match parser.unit(0, Context::Prose) {
+            Some(nodes) => {
+                for node in nodes {
+                    match node {
+                        Node::Text(text) => out.push_str(&text),
+                        node => out.push_str(&render::render_node(&node)),
+                    }
+                }
+            }
+            None => {
+                if !streaming {
+                    out.push_str(&input[start..]);
+                }
+                break;
+            }
+        }
+    }
+    out.retain(|c| !c.is_control() || matches!(c, '\n' | '\t'));
+    out
+}
+
+const TAGS: &[&str] = &[
     "svg",
     "grid",
     "grid-item",
     "row",
+    "col",
     "card",
     "box",
     "badge",
@@ -237,481 +89,1160 @@ const DIL_BLOCK_TAGS: &[&str] = &[
     "checkbox",
     "list",
     "list-item",
+    "divider",
+    "spacer",
+    "icon",
+    "slider",
+    "table",
+    "table-section",
+    "table-row",
+    "table-cell",
+    "Chart",
+    "segmented-control",
+    "radio-group",
+    "radio",
+    "select",
+    "input",
+    "textarea",
+    "form",
+    "date-picker",
+    "popover",
+    "popover-trigger",
+    "popover-content",
+    "carousel",
+    "carousel-item",
+    "carousel-media-item",
+    "flow",
+    "flow-item",
+    "pressable",
+    "math",
+    "bold",
+    "italic",
+    "underline",
+    "strikethrough",
+    "code",
+    "label",
+    "blockquote",
+    "AsyncImage",
+    "AsyncImageGroup",
+    "AsyncVideo",
+    "MapWidgetV2",
+    "Entity",
+    "Cite",
+    "FileCite",
+    "FileNavList",
+    "FollowUp",
+    "AppBlock",
+    "CodeBlock",
+    "WritingBlock",
+    "escape",
+    "favicon",
 ];
 
-const DIL_VOID_OR_SELF_TAGS: &[&str] =
-    &["Link", "MemoryCite", "divider", "spacer", "icon", "slider"];
-
-fn parse_open_tag(rest: &str) -> Option<(&str, &str, usize, bool)> {
-    if !rest.starts_with('<') || rest.starts_with("</") || rest.starts_with("<!") {
-        return None;
-    }
-    let after_lt = &rest[1..];
-    let name_len = after_lt
-        .bytes()
-        .take_while(|b| b.is_ascii_alphanumeric() || *b == b'-' || *b == b'_')
-        .count();
-    if name_len == 0 {
-        return None;
-    }
-    let name = &after_lt[..name_len];
-    let next_byte = after_lt.as_bytes().get(name_len).copied();
-    if !matches!(next_byte, Some(b' ' | b'\t' | b'\n' | b'\r' | b'/' | b'>')) {
-        return None;
-    }
-    if !DIL_BLOCK_TAGS.contains(&name) && !DIL_VOID_OR_SELF_TAGS.contains(&name) {
-        return None;
-    }
-    let end = find_tag_end(rest)?;
-    let raw_tag = &rest[..end];
-    let self_closing = raw_tag[..end - 1].trim_end().ends_with('/');
-    let attrs_end = if self_closing {
-        raw_tag[..end - 1].trim_end().len().saturating_sub(1)
-    } else {
-        end - 1
-    };
-    let attrs = raw_tag.get(1 + name_len..attrs_end).unwrap_or("").trim();
-    Some((name, attrs, end, self_closing))
+fn ident(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, '_' | '$' | '-')
+}
+fn local_ident(s: &str) -> bool {
+    s.starts_with(|c: char| c.is_ascii_alphabetic() || matches!(c, '_' | '$'))
+        && s.chars().all(|c| ident(c) && c != '-')
 }
 
-/// Find the closing `>` of a JSX/DIL opening tag, respecting quotes and `{...}` expressions.
-fn find_tag_end(rest: &str) -> Option<usize> {
-    let mut quote: Option<char> = None;
-    let mut brace_depth = 0usize;
+fn name_len(s: &str) -> usize {
+    s.bytes().take_while(|b| ident(*b as char)).count()
+}
+fn local_name_len(s: &str) -> usize {
+    s.bytes()
+        .take_while(|b| ident(*b as char) && *b != b'-')
+        .count()
+}
+
+// Quotes and nested delimiters are shared by attributes, literals and directives.
+fn balanced(s: &str) -> Option<usize> {
+    let mut stack = Vec::new();
+    let mut quote = None;
     let mut escaped = false;
-    for (idx, ch) in rest.char_indices().take_while(|(idx, _)| *idx < 8192) {
+    for (i, c) in s.char_indices() {
         if let Some(q) = quote {
             if escaped {
                 escaped = false;
-            } else if ch == '\\' {
+            } else if c == '\\' {
                 escaped = true;
-            } else if ch == q {
+            } else if c == q {
                 quote = None;
             }
             continue;
         }
-        match ch {
-            '"' | '\'' => quote = Some(ch),
-            '{' => brace_depth += 1,
-            '}' => brace_depth = brace_depth.saturating_sub(1),
-            '>' if brace_depth == 0 => return Some(idx + 1),
+        match c {
+            '\'' | '"' | '`' => quote = Some(c),
+            '{' => stack.push('}'),
+            '[' => stack.push(']'),
+            '(' => stack.push(')'),
+            '}' | ']' | ')' => {
+                if stack.pop() != Some(c) {
+                    return None;
+                }
+                if stack.is_empty() {
+                    return Some(i + c.len_utf8());
+                }
+            }
             _ => {}
         }
     }
     None
 }
 
-/// Find the matching `</name>` closing tag respecting nested `<name ...>` blocks.
-fn find_matching_close(rest: &str, name: &str, content_start: usize) -> Option<(usize, usize)> {
-    let mut depth = 1usize;
-    let mut i = content_start;
-    let bytes = rest.as_bytes();
-    let open_prefix = format!("<{name}");
-    let close_prefix = format!("</{name}");
-
-    while i < bytes.len() {
-        if bytes[i] == b'<' {
-            let slice = &rest[i..];
-            if slice.starts_with(&close_prefix)
-                && matches!(
-                    slice.as_bytes().get(close_prefix.len()),
-                    Some(b'>' | b' ' | b'\t' | b'\n' | b'\r')
-                )
-            {
-                if let Some(end) = slice.find('>') {
-                    depth -= 1;
-                    if depth == 0 {
-                        return Some((i, i + end + 1));
-                    }
-                    i += end + 1;
-                    continue;
-                }
-            } else if slice.starts_with(&open_prefix)
-                && matches!(
-                    slice.as_bytes().get(open_prefix.len()),
-                    Some(b' ' | b'\t' | b'\n' | b'\r' | b'/' | b'>')
-                )
-            {
-                if let Some(end) = find_tag_end(slice) {
-                    let self_closing = slice[..end - 1].trim_end().ends_with('/');
-                    if !self_closing {
-                        depth += 1;
-                    }
-                    i += end;
-                    continue;
-                }
-            }
-        }
-        let ch = rest[i..].chars().next().unwrap();
-        i += ch.len_utf8();
+fn quoted(s: &str) -> Option<(usize, String)> {
+    let q = s.chars().next()?;
+    if !matches!(q, '"' | '\'') {
+        return None;
     }
-    None
-}
-
-fn attr_value<'a>(attrs: &'a str, key: &str) -> Option<&'a str> {
-    let bytes = attrs.as_bytes();
-    let mut i = 0usize;
-    while i < bytes.len() {
-        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
-            i += 1;
-        }
-        let key_start = i;
-        while i < bytes.len()
-            && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'-' || bytes[i] == b'_')
-        {
-            i += 1;
-        }
-        let found_key = &attrs[key_start..i];
-        if found_key.is_empty() {
-            if i < bytes.len() {
-                i += attrs[i..].chars().next().map_or(1, char::len_utf8);
-            }
-            continue;
-        }
-        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
-            i += 1;
-        }
-        if i >= bytes.len() || bytes[i] != b'=' {
-            continue;
-        }
-        i += 1;
-        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
-            i += 1;
-        }
-        if i >= bytes.len() {
-            break;
-        }
-        let val = match bytes[i] {
-            b'"' | b'\'' => {
-                let q = bytes[i];
-                i += 1;
-                let v_start = i;
-                while i < bytes.len() && bytes[i] != q {
-                    if bytes[i] == b'\\' && i + 1 < bytes.len() {
-                        i += 2;
-                    } else {
-                        i += 1;
-                    }
-                }
-                let v = &attrs[v_start..i];
-                if i < bytes.len() {
-                    i += 1;
-                }
-                Some(v)
-            }
-            b'{' => {
-                i += 1;
-                let v_start = i;
-                let mut depth = 1usize;
-                while i < bytes.len() && depth > 0 {
-                    match bytes[i] {
-                        b'{' => depth += 1,
-                        b'}' => depth -= 1,
-                        _ => {}
-                    }
-                    i += 1;
-                }
-                Some(attrs[v_start..i.saturating_sub(1)].trim())
-            }
-            _ => {
-                let v_start = i;
-                while i < bytes.len() && !bytes[i].is_ascii_whitespace() {
-                    i += 1;
-                }
-                Some(&attrs[v_start..i])
-            }
-        };
-        if found_key == key {
-            return val;
-        }
-    }
-    None
-}
-
-fn try_render_dil_element(rest: &str) -> Option<(usize, String)> {
-    let (name, attrs, open_end, self_closing) = parse_open_tag(rest)?;
-
-    if self_closing {
-        let rendered = match name {
-            "MemoryCite" | "spacer" | "icon" | "slider" => String::new(),
-            "divider" => "\n\n---\n\n".to_owned(),
-            "Link" => render_link(attrs, ""),
-            _ => String::new(),
-        };
-        return Some((open_end, rendered));
-    }
-
-    // Handle stray/unpaired void tags defensively if written without `/`.
-    if matches!(name, "divider" | "spacer" | "icon" | "slider") {
-        let rendered = if name == "divider" {
-            "\n\n---\n\n".to_owned()
-        } else {
-            String::new()
-        };
-        return Some((open_end, rendered));
-    }
-
-    let (inner_end, total_end) = find_matching_close(rest, name, open_end)?;
-    let inner_raw = &rest[open_end..inner_end];
-
-    let rendered = match name {
-        "MemoryCite" => String::new(),
-        "Link" => render_link(attrs, inner_raw.trim()),
-        "badge" => render_badge(attrs, inner_raw),
-        "title" => {
-            let (inner, _) = render_prose_segment(inner_raw);
-            let t = inner.trim();
-            if t.is_empty() {
-                String::new()
-            } else {
-                format!("**{t}**")
-            }
-        }
-        "caption" => {
-            let (inner, _) = render_prose_segment(inner_raw);
-            let t = inner.trim();
-            if t.is_empty() {
-                String::new()
-            } else {
-                format!("*{t}*")
-            }
-        }
-        "text" => render_text(attrs, inner_raw),
-        "row" => render_row(inner_raw),
-        "grid" => render_grid(inner_raw),
-        "grid-item" => {
-            let (inner, _) = render_prose_segment(inner_raw);
-            inner.trim().to_owned()
-        }
-        "list" => render_prose_segment(inner_raw).0,
-        "list-item" => {
-            let inner = render_prose_segment(inner_raw).0;
-            if inner.trim().is_empty() {
-                String::new()
-            } else {
-                format!("- {}\n", inner.trim())
-            }
-        }
-        "box" | "card" => render_container(attrs, inner_raw),
-        "svg" => render_svg(inner_raw),
-        "checkbox" => {
-            let (inner, _) = render_prose_segment(inner_raw);
-            let label = inner.trim();
-            if label.is_empty() {
-                String::new()
-            } else {
-                let checked = attr_value(attrs, "checked") == Some("true");
-                let mark = if checked { "x" } else { " " };
-                format!("- [{mark}] {label}\n")
-            }
-        }
-        "button" => String::new(),
-        _ => return None,
-    };
-
-    Some((total_end, rendered))
-}
-
-fn render_link(attrs: &str, fallback_label: &str) -> String {
-    let url = attr_value(attrs, "url")
-        .or_else(|| attr_value(attrs, "href"))
-        .map(str::trim)
-        .filter(|s| !s.is_empty());
-    let title = attr_value(attrs, "title")
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .or_else(|| (!fallback_label.is_empty()).then_some(fallback_label));
-    match (title, url) {
-        (Some(t), Some(u)) => format!("[{t}]({u})"),
-        (None, Some(u)) => format!("[{u}]({u})"),
-        (Some(t), None) => t.to_owned(),
-        (None, None) => String::new(),
-    }
-}
-
-fn render_badge(attrs: &str, inner_raw: &str) -> String {
-    let (inner, _) = render_prose_segment(inner_raw);
-    let label = inner.trim();
-    if label.is_empty() {
-        return String::new();
-    }
-    let prefix = match attr_value(attrs, "color").map(str::trim) {
-        Some("success") => "✓ ",
-        Some("warning") => "⚠ ",
-        Some("danger" | "error") => "✕ ",
-        _ => "",
-    };
-    format!("**[{prefix}{label}]**")
-}
-
-fn render_text(attrs: &str, inner_raw: &str) -> String {
-    let (inner, _) = render_prose_segment(inner_raw);
-    let trimmed = inner.trim();
-    if trimmed.is_empty() {
-        return String::new();
-    }
-    if attr_value(attrs, "color") == Some("secondary")
-        && !trimmed.contains('\n')
-        && !trimmed.starts_with('*')
-        && !trimmed.starts_with('`')
-    {
-        format!("*{trimmed}*")
-    } else {
-        trimmed.to_owned()
-    }
-}
-
-fn render_row(inner_raw: &str) -> String {
-    let (rendered, _) = render_prose_segment(inner_raw);
-    let pieces: Vec<&str> = rendered
-        .lines()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .collect();
-    if pieces.is_empty() {
-        String::new()
-    } else {
-        pieces.join(" · ")
-    }
-}
-
-fn render_grid(inner_raw: &str) -> String {
-    // Extract direct <grid-item> children into a clean GFM table when structured as caption+value.
-    let mut items: Vec<(Option<String>, String)> = Vec::new();
-    let mut i = 0usize;
-    while i < inner_raw.len() {
-        if let Some(pos) = inner_raw[i..].find("<grid-item") {
-            let start = i + pos;
-            let slice = &inner_raw[start..];
-            if let Some((_, _, open_end, false)) = parse_open_tag(slice) {
-                if let Some((inner_end, total_end)) =
-                    find_matching_close(slice, "grid-item", open_end)
-                {
-                    let body = &slice[open_end..inner_end];
-                    items.push(extract_grid_item(body));
-                    i = start + total_end;
-                    continue;
-                }
-            }
-            i = start + 1;
-        } else {
-            break;
-        }
-    }
-
-    if items.is_empty() {
-        let (rendered, _) = render_prose_segment(inner_raw);
-        return rendered.trim().to_owned();
-    }
-
-    let all_have_captions = items.iter().all(|(cap, _)| cap.is_some());
-    if all_have_captions {
-        let mut out = String::from("\n| 항목 | 내용 |\n|---|---|\n");
-        for (cap, val) in items {
-            let k = escape_table_cell(cap.as_deref().unwrap_or(""));
-            let v = escape_table_cell(&val);
-            out.push_str(&format!("| {k} | {v} |\n"));
-        }
-        out
-    } else {
-        let mut out = String::from("\n");
-        for (cap, val) in items {
-            match (cap, val.is_empty()) {
-                (Some(k), false) => out.push_str(&format!("- **{k}:** {val}\n")),
-                (Some(k), true) => out.push_str(&format!("- **{k}**\n")),
-                (None, false) => out.push_str(&format!("- {val}\n")),
-                (None, true) => {}
-            }
-        }
-        out
-    }
-}
-
-fn extract_grid_item(body: &str) -> (Option<String>, String) {
-    let mut caption: Option<String> = None;
-    let mut rest_buf = String::with_capacity(body.len());
-    let mut i = 0usize;
-    while i < body.len() {
-        if body.as_bytes()[i] == b'<' && body[i..].starts_with("<caption") && caption.is_none() {
-            if let Some((_, _, open_end, false)) = parse_open_tag(&body[i..]) {
-                if let Some((inner_end, total_end)) =
-                    find_matching_close(&body[i..], "caption", open_end)
-                {
-                    let (cap_rendered, _) =
-                        render_prose_segment(&body[i + open_end..i + inner_end]);
-                    let cap = cap_rendered.trim().to_owned();
-                    if !cap.is_empty() {
-                        caption = Some(cap);
-                    }
-                    i += total_end;
-                    continue;
-                }
-            }
-        }
-        let ch = body[i..].chars().next().unwrap();
-        rest_buf.push(ch);
-        i += ch.len_utf8();
-    }
-    let (val_rendered, _) = render_prose_segment(&rest_buf);
-    let val = val_rendered
-        .lines()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ");
-    (caption, val)
-}
-
-fn escape_table_cell(text: &str) -> String {
-    text.replace('|', "\\|").replace('\n', " ")
-}
-
-fn render_container(attrs: &str, inner_raw: &str) -> String {
-    let (inner, _) = render_prose_segment(inner_raw);
-    let trimmed = inner.trim();
-    let title = attr_value(attrs, "title")
-        .map(str::trim)
-        .filter(|s| !s.is_empty());
     let mut out = String::new();
-    if let Some(t) = title {
-        out.push_str("\n**");
-        out.push_str(t);
-        out.push_str("**\n");
+    let mut chars = s[q.len_utf8()..].char_indices();
+    while let Some((i, c)) = chars.next() {
+        if c == q {
+            return Some((i + 2, out));
+        }
+        if c == '\\' {
+            let (_, c) = chars.next()?;
+            match c {
+                'n' => out.push('\n'),
+                'r' => out.push('\r'),
+                't' => out.push('\t'),
+                '\\' | '"' | '\'' => out.push(c),
+                _ => {
+                    out.push('\\');
+                    out.push(c);
+                }
+            }
+        } else {
+            out.push(c);
+        }
     }
-    if !trimmed.is_empty() {
-        out.push('\n');
-        out.push_str(trimmed);
-        out.push('\n');
-    }
-    out
+    None
 }
 
-fn render_svg(inner_raw: &str) -> String {
-    let mut labels: Vec<String> = Vec::new();
-    let mut i = 0usize;
-    while i < inner_raw.len() {
-        if let Some(pos) = inner_raw[i..].find("<text") {
-            let start = i + pos;
-            let slice = &inner_raw[start..];
-            if let Some(open_end) = find_tag_end(slice) {
-                if let Some((inner_end, total_end)) = find_matching_close(slice, "text", open_end) {
-                    let label = render_prose_segment(&slice[open_end..inner_end]).0;
-                    if !label.trim().is_empty() {
-                        labels.push(label.trim().to_owned());
+fn split_top(s: &str, delimiter: char) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut start = 0;
+    let mut i = 0;
+    while i < s.len() {
+        let rest = &s[i..];
+        let c = rest.chars().next().unwrap();
+        let skip = match c {
+            '"' | '\'' => quoted(rest).map(|(n, _)| n),
+            '{' | '[' | '(' => balanced(rest),
+            _ => None,
+        };
+        if let Some(n) = skip {
+            i += n;
+            continue;
+        }
+        if c == delimiter {
+            parts.push(&s[start..i]);
+            start = i + c.len_utf8();
+        }
+        i += c.len_utf8();
+    }
+    parts.push(&s[start..]);
+    parts
+}
+
+fn eval(s: &str, locals: &Locals, depth: usize) -> Value {
+    let s = s.trim();
+    let unknown = || Value::Unknown(s.to_owned());
+    // Stack safety: never discard the original expression on fallback.
+    if depth >= 128 {
+        return unknown();
+    }
+    match s {
+        "null" => return Value::Null,
+        "true" => return Value::Bool(true),
+        "false" => return Value::Bool(false),
+        _ => {}
+    }
+    if let Some((n, v)) = quoted(s) {
+        if n == s.len() {
+            return Value::String(v);
+        }
+    }
+    // Restricted decimal grammar: no legacy octal, leading plus or nonfinite values.
+    let decimal = s.strip_prefix('-').unwrap_or(s);
+    let integer = decimal.split(['.', 'e', 'E']).next().unwrap_or("");
+    if !integer.is_empty()
+        && integer.bytes().all(|b| b.is_ascii_digit())
+        && (integer.len() == 1 || !integer.starts_with('0'))
+        && !decimal.ends_with('.')
+        && s.parse::<f64>().is_ok_and(f64::is_finite)
+    {
+        return Value::Number(s.to_owned());
+    }
+    if let Some(raw) = s
+        .strip_prefix("String.raw`")
+        .and_then(|v| v.strip_suffix('`'))
+    {
+        if !raw.contains('`') && !raw.contains("${") {
+            return Value::String(raw.to_owned());
+        }
+        return unknown();
+    }
+    if s.starts_with('[') && balanced(s) == Some(s.len()) {
+        let mut parts = split_top(&s[1..s.len() - 1], ',');
+        if parts.last().is_some_and(|p| p.trim().is_empty()) {
+            parts.pop();
+        }
+        if parts.iter().any(|p| p.trim().is_empty()) {
+            return unknown();
+        }
+        return Value::Array(
+            parts
+                .into_iter()
+                .map(|p| eval(p, locals, depth + 1))
+                .collect(),
+        );
+    }
+    if s.starts_with('{') && balanced(s) == Some(s.len()) {
+        let mut fields = Vec::new();
+        for p in split_top(&s[1..s.len() - 1], ',') {
+            if p.trim().is_empty() {
+                continue;
+            }
+            let pair = split_top(p, ':');
+            if pair.len() != 2 {
+                return unknown();
+            }
+            let key = pair[0].trim();
+            let key = quoted(key)
+                .filter(|(n, _)| *n == key.len())
+                .map(|(_, v)| v)
+                .or_else(|| local_ident(key).then(|| key.to_owned()));
+            let Some(key) = key else {
+                return unknown();
+            };
+            if fields.iter().any(|(k, _)| k == &key) {
+                return unknown();
+            }
+            fields.push((key, eval(pair[1], locals, depth + 1)));
+        }
+        return Value::Object(fields);
+    }
+    if s.starts_with('(') && balanced(s) == Some(s.len()) {
+        return eval(&s[1..s.len() - 1], locals, depth + 1);
+    }
+    // Only a single unambiguous top-level operation is interpreted. Do not
+    // approximate JS coercion, precedence, associativity or object identity.
+    let mut operation = None;
+    let mut i = 0;
+    while i < s.len() {
+        let rest = &s[i..];
+        let c = rest.chars().next().unwrap();
+        let skip = match c {
+            '"' | '\'' => quoted(rest).map(|(n, _)| n),
+            '{' | '[' | '(' => balanced(rest),
+            _ => None,
+        };
+        if let Some(n) = skip {
+            i += n;
+            continue;
+        }
+        if let Some(op) = [" === ", " !== ", " + ", " - ", " * ", " / "]
+            .into_iter()
+            .find(|op| rest.starts_with(op))
+        {
+            if operation.replace((i, op)).is_some() {
+                return unknown();
+            }
+            i += op.len();
+        } else {
+            i += c.len_utf8();
+        }
+    }
+    if let Some((i, op)) = operation {
+        let a = eval(&s[..i], locals, depth + 1);
+        let b = eval(&s[i + op.len()..], locals, depth + 1);
+        if matches!(op, " === " | " !== ") {
+            let equal = match (&a, &b) {
+                (Value::Unknown(_) | Value::Array(_) | Value::Object(_), _)
+                | (_, Value::Unknown(_) | Value::Array(_) | Value::Object(_)) => return unknown(),
+                (Value::Number(a), Value::Number(b)) => {
+                    a.parse::<f64>().ok() == b.parse::<f64>().ok()
+                }
+                _ => a == b,
+            };
+            return Value::Bool(equal == (op == " === "));
+        }
+        if let (Value::Number(a), Value::Number(b)) = (a, b) {
+            if let (Ok(a), Ok(b)) = (a.parse::<f64>(), b.parse::<f64>()) {
+                let n = match op {
+                    " + " => a + b,
+                    " - " => a - b,
+                    " * " => a * b,
+                    _ => a / b,
+                };
+                if n.is_finite() {
+                    return Value::Number(n.to_string());
+                }
+            }
+        }
+        return unknown();
+    }
+    if let Some(rhs) = s.strip_prefix('!') {
+        if let Value::Bool(b) = eval(rhs, locals, depth + 1) {
+            return Value::Bool(!b);
+        }
+    }
+    let n = local_name_len(s);
+    if let Some((_, value)) = locals.iter().rev().find(|(key, _)| key == &s[..n]) {
+        let mut value = value.clone();
+        let mut tail = &s[n..];
+        while !tail.is_empty() {
+            if let Some(rest) = tail.strip_prefix('.') {
+                let n = local_name_len(rest);
+                value = match value {
+                    Value::Object(fields) => fields
+                        .into_iter()
+                        .find(|(k, _)| k == &rest[..n])
+                        .map(|(_, v)| v)
+                        .unwrap_or_else(unknown),
+                    Value::Array(items) if &rest[..n] == "length" => {
+                        Value::Number(items.len().to_string())
                     }
-                    i = start + total_end;
+                    _ => return unknown(),
+                };
+                tail = &rest[n..];
+            } else if tail.starts_with('[') {
+                let Some(n) = balanced(tail) else {
+                    return unknown();
+                };
+                value = match (value, tail[1..n - 1].trim().parse::<usize>()) {
+                    (Value::Array(items), Ok(index)) => {
+                        items.get(index).cloned().unwrap_or_else(unknown)
+                    }
+                    _ => return unknown(),
+                };
+                tail = &tail[n..];
+            } else {
+                return unknown();
+            }
+        }
+        return value;
+    }
+    unknown()
+}
+
+fn value_text(v: Value) -> String {
+    match v {
+        Value::Null => "null".into(),
+        Value::Bool(v) => v.to_string(),
+        Value::Number(v) | Value::String(v) => v,
+        Value::Unknown(v) => format!("[Unavailable: {v}]"),
+        Value::Array(v) => format!(
+            "[{}]",
+            v.into_iter().map(value_text).collect::<Vec<_>>().join(", ")
+        ),
+        Value::Object(v) => format!(
+            "{{{}}}",
+            v.into_iter()
+                .map(|(k, v)| format!("{k}: {}", value_text(v)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    }
+}
+
+fn escaped_at(s: &str, i: usize) -> bool {
+    s.as_bytes()[..i]
+        .iter()
+        .rev()
+        .take_while(|&&b| b == b'\\')
+        .count()
+        % 2
+        != 0
+}
+
+// The opening dollar can be plain currency or math. Do not project the
+// ambiguous region until a matching delimiter or a line break resolves it.
+fn dollar_span(s: &str) -> Option<usize> {
+    let run = s.bytes().take_while(|&b| b == b'$').count();
+    if run > 2 {
+        return Some(run);
+    }
+    if s.len() == run {
+        return None;
+    }
+    if run == 1 && s[run..].starts_with(char::is_whitespace) {
+        return Some(run);
+    }
+    // Like the upstream renderer, distinguish digit-led currency from
+    // formulas using explicit math operators. Keep a partial next token
+    // buffered until it is clear that it is prose.
+    let mut currency = run == 1 && s[run..].starts_with(|c: char| c.is_ascii_digit());
+    let math_operator = |c: char| {
+        matches!(
+            c,
+            '\\' | '^' | '_' | '=' | '+' | '-' | '*' | '/' | '<' | '>'
+        )
+    };
+    let mut i = run;
+    while i < s.len() {
+        let c = s[i..].chars().next()?;
+        if run == 1 && c == '\n' {
+            return Some(run);
+        }
+        if currency && c.is_whitespace() {
+            let next = s[i..]
+                .trim_start_matches(|ch: char| ch != '\n' && ch.is_whitespace())
+                .chars()
+                .next()?;
+            if !math_operator(next) && next != '$' {
+                return Some(run);
+            }
+        }
+        currency &= !math_operator(c);
+        if c == '$' && !escaped_at(s, i) {
+            let close = s[i..].bytes().take_while(|&b| b == b'$').count();
+            if close == run && i + close < s.len() {
+                return Some(i + close);
+            }
+            i += close;
+        } else {
+            i += c.len_utf8();
+        }
+    }
+    None
+}
+
+fn tag_end(s: &str) -> Option<usize> {
+    let mut i = 1;
+    while i < s.len() {
+        let r = &s[i..];
+        let c = r.chars().next()?;
+        match c {
+            '>' => return Some(i + 1),
+            '"' | '\'' => i += quoted(r)?.0,
+            '{' => i += balanced(r)?,
+            _ => i += c.len_utf8(),
+        }
+    }
+    None
+}
+
+// A literal XML region is opaque to presentation parsing, including its children.
+fn literal_element_end(s: &str, name: &str, opening: usize) -> Option<usize> {
+    let mut pos = opening;
+    let mut depth = 1usize;
+    while let Some(offset) = s[pos..].find('<') {
+        pos += offset;
+        let rest = &s[pos..];
+        if rest.starts_with("<!--") {
+            pos += rest.find("-->")? + 3;
+            continue;
+        }
+        if rest.starts_with("<![CDATA[") {
+            pos += rest.find("]]>")? + 3;
+            continue;
+        }
+        let closing = rest.starts_with("</");
+        let prefix = if closing { 2 } else { 1 };
+        let tail = &rest[prefix..];
+        let n = tag_name_len(tail);
+        if n == 0 || !tag_boundary(&tail[n..]) {
+            pos += 1;
+            continue;
+        }
+        let end = tag_end(rest)?;
+        if &tail[..n] == name {
+            if closing {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(pos + end);
+                }
+            } else if !rest[..end - 1].trim_end().ends_with('/') {
+                depth += 1;
+            }
+        }
+        pos += end;
+    }
+    None
+}
+
+fn tag_name_len(s: &str) -> usize {
+    s.bytes()
+        .take_while(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b':' | b'.'))
+        .count()
+}
+
+fn tag_boundary(s: &str) -> bool {
+    s.starts_with(|c: char| c.is_whitespace() || matches!(c, '/' | '>'))
+}
+
+fn html_void(name: &str) -> bool {
+    matches!(
+        name,
+        "area"
+            | "base"
+            | "br"
+            | "col"
+            | "embed"
+            | "hr"
+            | "img"
+            | "input"
+            | "link"
+            | "meta"
+            | "param"
+            | "source"
+            | "track"
+            | "wbr"
+    )
+}
+
+fn svg_tag(name: &str) -> bool {
+    matches!(
+        name,
+        "g" | "rect"
+            | "circle"
+            | "ellipse"
+            | "line"
+            | "path"
+            | "polyline"
+            | "polygon"
+            | "tspan"
+            | "desc"
+            | "defs"
+            | "marker"
+            | "symbol"
+            | "use"
+            | "clipPath"
+            | "mask"
+            | "linearGradient"
+            | "radialGradient"
+            | "stop"
+            | "image"
+    )
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Context {
+    Prose,
+    Element,
+    Svg,
+}
+
+fn attrs(mut s: &str, locals: &Locals) -> Vec<(String, Value)> {
+    let mut result = Vec::new();
+    loop {
+        s = s.trim_start();
+        if s.is_empty() {
+            break;
+        }
+        let n = name_len(s);
+        if n == 0 {
+            result.push(("unavailable".into(), Value::Unknown(s.into())));
+            break;
+        }
+        let key = &s[..n];
+        s = s[n..].trim_start();
+        let value;
+        if let Some(rest) = s.strip_prefix('=') {
+            s = rest.trim_start();
+            if let Some((n, v)) = quoted(s) {
+                value = Value::String(v);
+                s = &s[n..];
+            } else if s.starts_with('{') {
+                let Some(n) = balanced(s) else {
+                    result.push((key.into(), Value::Unknown(s.into())));
+                    break;
+                };
+                value = eval(&s[1..n - 1], locals, 0);
+                s = &s[n..];
+            } else {
+                let n = s.find(char::is_whitespace).unwrap_or(s.len());
+                value = Value::String(s[..n].into());
+                s = &s[n..];
+            }
+        } else {
+            value = Value::Bool(true);
+        }
+        result.push((key.into(), value));
+    }
+    result
+}
+
+struct Parser<'a> {
+    source: &'a str,
+    pos: usize,
+    locals: Locals,
+}
+
+impl<'a> Parser<'a> {
+    fn rest(&self) -> &'a str {
+        &self.source[self.pos..]
+    }
+    fn text(&mut self, n: usize) -> Vec<Node> {
+        let text = self.rest()[..n].to_owned();
+        self.pos += n;
+        vec![Node::Text(text)]
+    }
+    fn unit(&mut self, depth: usize, context: Context) -> Option<Vec<Node>> {
+        let s = self.rest();
+        if s.is_empty() {
+            return None;
+        }
+        // At line boundaries, recognize Markdown container prefixes before fences.
+        if self.pos == 0 || self.source.as_bytes()[self.pos - 1] == b'\n' {
+            let line = s.split_inclusive('\n').next()?;
+            let body = markdown_body(line);
+            let trimmed = body.trim_start_matches(' ');
+            let indent = body.len() - trimmed.len();
+            let c = trimmed.chars().next().unwrap_or(' ');
+            let n = trimmed.chars().take_while(|x| *x == c).count();
+            if matches!(c, '`' | '~') && n >= 3 {
+                // A fence opener must settle before its contents are released.
+                if !line.ends_with('\n') {
+                    return None;
+                }
+                let mut end = line.len();
+                for l in s[line.len()..].split_inclusive('\n') {
+                    end += l.len();
+                    let b = markdown_body(l).trim_start_matches(' ');
+                    let run = b.chars().take_while(|x| *x == c).count();
+                    if run >= n && b[run..].trim().is_empty() {
+                        if !l.ends_with('\n') {
+                            return None;
+                        }
+                        return Some(self.text(end));
+                    }
+                }
+                return None;
+            }
+            // Blank-line-separated indentation is Markdown code, including
+            // continuation lines. Immediate layout padding remains supported.
+            let previous_blank = context != Context::Prose
+                && indent >= 4
+                && self.source[..self.pos]
+                    .strip_suffix('\n')
+                    .is_some_and(|before| {
+                        before
+                            .rsplit('\n')
+                            .find(|line| {
+                                line.trim().is_empty()
+                                    || !(line.starts_with("    ") || line.starts_with('\t'))
+                            })
+                            .is_some_and(|line| line.trim().is_empty())
+                    });
+            if context != Context::Prose && !previous_blank && trimmed.starts_with('|') {
+                if let Some((len, table)) = layout_pipe_table(s) {
+                    self.pos += len;
+                    return Some(vec![Node::Text(table)]);
+                }
+            }
+            if indent >= 4 || body.starts_with('\t') {
+                let tag = trimmed.strip_prefix('<').and_then(|t| {
+                    let n = tag_name_len(t);
+                    (n > 0 && tag_boundary(&t[n..])).then_some(&t[..n])
+                });
+                let explicit_layout = context != Context::Prose
+                    && !previous_blank
+                    && tag.is_some_and(|tag| {
+                        TAGS.contains(&tag) || context == Context::Svg && svg_tag(tag)
+                    });
+                if !explicit_layout {
+                    return Some(self.text(line.len()));
+                }
+            }
+            // A partial container prefix might become a fence.
+            if !line.ends_with('\n')
+                && (trimmed.is_empty()
+                    || trimmed.chars().all(|x| {
+                        matches!(x, '`' | '~' | '>' | '-' | '+' | '*' | ' ' | '.' | '0'..='9')
+                    }))
+            {
+                return None;
+            }
+        }
+        let c = s.chars().next()?;
+        if c == '$' {
+            return Some(self.text(dollar_span(s)?));
+        }
+        if c == '\\' {
+            for (open, close) in [("\\(", "\\)"), ("\\[", "\\]")] {
+                if let Some(rest) = s.strip_prefix(open) {
+                    let end = rest
+                        .match_indices(close)
+                        .map(|(i, _)| i + open.len())
+                        .find(|&i| !escaped_at(s, i))?;
+                    return Some(self.text(end + close.len()));
+                }
+            }
+            let n = c.len_utf8() + s[c.len_utf8()..].chars().next()?.len_utf8();
+            return Some(self.text(n));
+        }
+        if c == '`' {
+            let n = s.bytes().take_while(|b| *b == b'`').count();
+            let mut i = n;
+            while i < s.len() {
+                if s.as_bytes()[i] == b'`' {
+                    let run = s[i..].bytes().take_while(|b| *b == b'`').count();
+                    if run == n && i + run < s.len() {
+                        return Some(self.text(i + run));
+                    }
+                    i += run;
+                } else {
+                    i += s[i..].chars().next()?.len_utf8();
+                }
+            }
+            return None;
+        }
+        if c == '<' {
+            for (open, close) in [("<!--", "-->"), ("<![CDATA[", "]]>")] {
+                if open.starts_with(s) && s.len() < open.len() {
+                    return None;
+                }
+                if let Some(rest) = s.strip_prefix(open) {
+                    let end = rest.find(close)? + open.len() + close.len();
+                    return Some(self.text(end));
+                }
+            }
+            if s.starts_with("<!") || s.starts_with("<?") {
+                return Some(self.text(tag_end(s)?));
+            }
+            let closing = s.starts_with("</");
+            let prefix = if closing { 2 } else { 1 };
+            if s.len() == prefix {
+                return None;
+            }
+            let tail = &s[prefix..];
+            let n = tag_name_len(tail);
+            if n > 0 && tail.starts_with(|x: char| x.is_ascii_alphabetic()) {
+                let name = &tail[..n];
+                let after = &tail[n..];
+                if after.is_empty() {
+                    return None;
+                }
+                if tag_boundary(after) {
+                    let end = tag_end(s)?;
+                    let adjacent = self.source[..self.pos]
+                        .chars()
+                        .next_back()
+                        .is_some_and(|ch| {
+                            ch.is_alphanumeric() || matches!(ch, '_' | '>' | ']' | ')')
+                        });
+                    // Attribute-free identifier-adjacent tags are generic-like.
+                    // Ordinary separated prose and attributed DIL remain eligible.
+                    let generic = adjacent
+                        && after.starts_with('>')
+                        && !closing
+                        && self.source[..self.pos]
+                            .chars()
+                            .next_back()
+                            .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_');
+                    if !closing
+                        && !generic
+                        && !(name == "input" && !s[..end - 1].trim_end().ends_with('/'))
+                        && (TAGS.contains(&name) || context == Context::Svg && svg_tag(name))
+                    {
+                        return self.element(name, n, depth, context);
+                    }
+                    let inner = &s[prefix..end - 1];
+                    let autolink = !inner.contains(char::is_whitespace)
+                        && (inner.contains("://") || inner.contains('@'));
+                    if closing
+                        || adjacent
+                        || autolink
+                        || html_void(name)
+                        || s[..end - 1].trim_end().ends_with('/')
+                    {
+                        return Some(self.text(end));
+                    }
+                    return Some(self.text(literal_element_end(s, name, end)?));
+                }
+                if after.starts_with('@') {
+                    return Some(self.text(s.find('>')? + 1));
+                }
+            }
+        }
+        if c == '{' {
+            let n = balanced(s)?;
+            let expr = s[1..n - 1].trim();
+            if let Some(condition) = expr.strip_prefix("#if ") {
+                return self.condition(n, condition, depth, context);
+            }
+            if let Some(body) = expr
+                .strip_prefix("@body ")
+                .or_else(|| expr.strip_prefix("@module "))
+            {
+                self.pos += n;
+                if let Some(decl) = body
+                    .strip_prefix("const ")
+                    .or_else(|| body.strip_prefix("let "))
+                {
+                    if let Some((key, val)) = decl.split_once('=') {
+                        let key = key.trim();
+                        let val = val.trim().trim_end_matches(';');
+                        if local_ident(key) {
+                            self.locals.push((key.into(), eval(val, &self.locals, 0)));
+                            return Some(vec![]);
+                        }
+                        if let (Some(keys), Some(initial)) = (
+                            key.strip_prefix('[').and_then(|k| k.strip_suffix(']')),
+                            val.strip_prefix("DIL.useState(")
+                                .and_then(|v| v.strip_suffix(')')),
+                        ) {
+                            if let Some(k) =
+                                keys.split(',').next().filter(|k| local_ident(k.trim()))
+                            {
+                                self.locals
+                                    .push((k.trim().into(), eval(initial, &self.locals, 0)));
+                                return Some(vec![]);
+                            }
+                        }
+                    }
+                }
+                return Some(vec![Node::Text(format!(
+                    "[Unavailable declaration: {body}]"
+                ))]);
+            }
+            let v = eval(expr, &self.locals, 0);
+            let root = local_name_len(expr);
+            let local = root > 0 && self.locals.iter().any(|(key, _)| key == &expr[..root]);
+            let member = root > 0
+                && expr.starts_with(|ch: char| ch.is_ascii_alphabetic() || ch == '_')
+                && expr[root..].starts_with('.')
+                && !expr.contains([':', '\n']);
+            if context != Context::Prose
+                || local
+                || member
+                || expr.starts_with(['#', ':', '/', '@'])
+            {
+                self.pos += n;
+                return Some(vec![Node::Text(value_text(v))]);
+            }
+            return Some(self.text(n));
+        }
+        let len = s
+            .char_indices()
+            .skip(1)
+            .find(|&(i, ch)| {
+                matches!(ch, '<' | '{' | '`' | '\\' | '$') || s.as_bytes()[i - 1] == b'\n'
+            })
+            .map_or(s.len(), |(i, _)| i);
+        Some(self.text(len))
+    }
+
+    fn element(
+        &mut self,
+        name: &str,
+        n: usize,
+        depth: usize,
+        context: Context,
+    ) -> Option<Vec<Node>> {
+        let s = self.rest();
+        let end = tag_end(s)?;
+        let raw = s[1 + n..end - 1].trim();
+        let closed = raw.ends_with('/');
+        let attributes = attrs(raw.strip_suffix('/').unwrap_or(raw), &self.locals);
+        self.pos += end;
+        let mut children = Vec::new();
+        if !closed && !matches!(name, "divider" | "spacer" | "icon" | "slider") {
+            let close = format!("</{name}>");
+            if depth >= 128 {
+                let finish = literal_element_end(s, name, end)?;
+                self.pos += finish - end;
+                return Some(vec![Node::Text(format!(
+                    "[Presentation unavailable: nesting]\n{}",
+                    &s[..finish]
+                ))]);
+            }
+            let child_context = if name == "svg" || context == Context::Svg {
+                Context::Svg
+            } else {
+                Context::Element
+            };
+            if matches!(name, "escape" | "AppBlock" | "CodeBlock" | "WritingBlock") {
+                let n = self.rest().find(&close)?;
+                children = self.text(n);
+                self.pos += close.len();
+            } else {
+                loop {
+                    if self.rest().starts_with(&close) {
+                        self.pos += close.len();
+                        break;
+                    }
+                    append_nodes(&mut children, self.unit(depth + 1, child_context)?);
+                }
+            }
+        }
+        if name == "escape" {
+            return Some(children);
+        }
+        Some(vec![Node::Element {
+            name: name.into(),
+            attrs: attributes,
+            children,
+        }])
+    }
+
+    fn condition(
+        &mut self,
+        n: usize,
+        condition: &str,
+        depth: usize,
+        context: Context,
+    ) -> Option<Vec<Node>> {
+        if depth >= 128 {
+            return None;
+        }
+        self.pos += n;
+        let saved = self.locals.clone();
+        let mut branches = vec![(Some(condition), Vec::new())];
+        loop {
+            if self.rest().starts_with("{/if}") {
+                self.pos += 5;
+                break;
+            }
+            if self.rest().starts_with("{:else") {
+                let end = balanced(self.rest())?;
+                let directive = &self.rest()[1..end - 1];
+                let next = if directive == ":else" {
+                    Some(None)
+                } else {
+                    directive.strip_prefix(":else if ").map(Some)
+                };
+                if let Some(next) = next {
+                    self.pos += end;
+                    self.locals = saved.clone();
+                    branches.push((next, Vec::new()));
                     continue;
                 }
             }
-            i = start + 1;
-        } else {
+            let nodes = self.unit(depth + 1, context)?;
+            append_nodes(&mut branches.last_mut()?.1, nodes);
+        }
+        self.locals = saved;
+        let mut result = Vec::new();
+        let mut ambiguous = false;
+        for (condition, nodes) in branches {
+            let choice = condition.map_or(Value::Bool(true), |c| eval(c, &self.locals, 0));
+            match choice {
+                Value::Bool(false) => {}
+                Value::Bool(true) => {
+                    if ambiguous {
+                        let label = condition.unwrap_or("else");
+                        result.push(Node::Text(format!("\n[Alternative: {label}]\n")));
+                    }
+                    append_nodes(&mut result, nodes);
+                    break;
+                }
+                _ => {
+                    ambiguous = true;
+                    let label = condition.unwrap_or("else");
+                    result.push(Node::Text(format!("\n[Unknown condition: {label}; if]\n")));
+                    append_nodes(&mut result, nodes);
+                }
+            }
+        }
+        Some(result)
+    }
+}
+
+// A padded GFM table inside an explicit layout is not an indented code block.
+// This is recognized only at the source boundary, never inside a protected
+// code/math/markup region or by rewriting the already-rendered Markdown.
+fn layout_pipe_table(s: &str) -> Option<(usize, String)> {
+    let mut lines = s.split_inclusive('\n');
+    let first = lines.next()?;
+    let second = lines.next()?;
+    let header = first.trim_start_matches(' ');
+    let indent = first.len() - header.len();
+    let delimiter = second.trim_start_matches(' ');
+    if indent == 0
+        || !header.starts_with('|')
+        || !delimiter.starts_with('|')
+        || second.len() - delimiter.len() != indent
+        || !delimiter.trim().trim_matches('|').split('|').all(|c| {
+            let c = c.trim().trim_matches(':');
+            c.len() >= 3 && c.bytes().all(|b| b == b'-')
+        })
+    {
+        return None;
+    }
+    let mut consumed = first.len() + second.len();
+    let mut out = format!("{header}{delimiter}");
+    for line in lines {
+        let row = line.trim_start_matches(' ');
+        if line.len() - row.len() != indent || !row.starts_with('|') {
             break;
         }
+        consumed += line.len();
+        out.push_str(row);
     }
-    if labels.is_empty() {
-        String::new()
-    } else {
-        format!("\n> **[Diagram]** {}\n", labels.join(" · "))
+    Some((consumed, out))
+}
+
+fn markdown_body(mut line: &str) -> &str {
+    loop {
+        let trimmed = line.trim_start_matches(' ');
+        if line.len() - trimmed.len() >= 4 || line.starts_with('\t') {
+            return line;
+        }
+        if let Some(rest) = trimmed.strip_prefix('>') {
+            line = rest.strip_prefix(' ').unwrap_or(rest);
+        } else if let Some(rest) = trimmed
+            .strip_prefix("- ")
+            .or_else(|| trimmed.strip_prefix("* "))
+            .or_else(|| trimmed.strip_prefix("+ "))
+        {
+            line = rest;
+        } else {
+            let n = trimmed.bytes().take_while(u8::is_ascii_digit).count();
+            if n > 0 {
+                if let Some(rest) = trimmed[n..]
+                    .strip_prefix(". ")
+                    .or_else(|| trimmed[n..].strip_prefix(") "))
+                {
+                    line = rest;
+                    continue;
+                }
+            }
+            return line;
+        }
+    }
+}
+
+#[cfg(test)]
+mod parser_tests {
+    use super::*;
+    #[test]
+    fn protected_and_monotonic() {
+        for s in [
+            "Use `Vec<T>` and continue.",
+            "x < 5. {name} done",
+            "> Example:\n> ```html\n> <badge>literal</badge>\n> ```\nAfter.",
+            "Example:\n\n    <badge>literal</badge>\n    {obj.value}\n",
+            "Unicode 한국어 ✅ \\<badge>literal",
+            "{#if true}Ready{:else}Not ready{/if} done",
+            "{#if ready}Ready{:else}Not ready{/if} done",
+        ] {
+            let full = render_for_codex_tui(s);
+            let mut previous = String::new();
+            for i in s
+                .char_indices()
+                .map(|(i, _)| i)
+                .chain(std::iter::once(s.len()))
+            {
+                let next = render_stream_prefix(&s[..i]);
+                assert!(
+                    next.starts_with(&previous) && full.starts_with(&next),
+                    "{s:?} at {i}: {previous:?} -> {next:?}, full={full:?}"
+                );
+                previous = next;
+            }
+        }
+    }
+    #[test]
+    fn branches_and_literals_are_not_guessed() {
+        let raw = "{#if false}No{:else if true}Yes{:else}Never{/if}";
+        assert_eq!(render_for_codex_tui(raw), "Yes");
+        let raw = "{#if unknown}First{:else if true}Second{:else}Never{/if}";
+        let out = render_for_codex_tui(raw);
+        assert!(
+            out.contains("Unknown condition") && out.contains("First") && out.contains("Second")
+        );
+        assert!(!out.contains("Never"));
+        let locals = vec![];
+        assert_eq!(eval("1 === 1.0", &locals, 0), Value::Bool(true));
+        assert!(matches!(eval("1 - 2 - 3", &locals, 0), Value::Unknown(_)));
+        assert!(matches!(eval("1 == '1'", &locals, 0), Value::Unknown(_)));
+    }
+
+    #[test]
+    fn nested_layout_does_not_normalize_protected_code() {
+        let code = "```text\n    | A | B |\n    |---|---|\n    | 1 | 2 |\n```\n";
+        let raw = format!("<box>\n{code}<badge>Ready</badge></box> end");
+        let out = render_for_codex_tui(&raw);
+        assert!(
+            out.contains(code) && out.contains("Ready") && out.ends_with(" end"),
+            "{out:?}"
+        );
+        for (i, _) in raw.char_indices() {
+            assert!(out.starts_with(&render_stream_prefix(&raw[..i])), "{i}");
+        }
+    }
+    #[test]
+    fn corrective_semantics_and_prefixes() {
+        let cases = [
+            (
+                "ordinary $5 and <bold>later</bold>",
+                "ordinary $5 and **later**",
+            ),
+            ("$5$ and <bold>later</bold>", "$5$ and **later**"),
+            (
+                "$2 + {x.y}$ and <bold>later</bold>",
+                "$2 + {x.y}$ and **later**",
+            ),
+            ("<col>Column</col> prose", "\nColumn\n prose"),
+            ("Vec<text> value </text>", "Vec<text> value </text>"),
+            ("normal prose <bold>later</bold>", "normal prose **later**"),
+            (
+                "<input type=\"text\" value=\"plain\"> following prose",
+                "<input type=\"text\" value=\"plain\"> following prose",
+            ),
+            (
+                "<math value={String.raw`\\frac{1}{2}`} />",
+                "$\\frac{1}{2}$",
+            ),
+            ("{#if !false === 0}WRONG{:else}RIGHT{/if}", "RIGHT"),
+            ("plain\x1b]0;test\x07", "plain]0;test"),
+            ("<escape>\x1b]0;test\x07</escape>", "]0;test"),
+        ];
+        for (raw, expected) in cases {
+            assert_eq!(render_for_codex_tui(raw), expected, "{raw:?}");
+            assert_eq!(render_stream_prefix(raw), expected, "{raw:?}");
+            let mut previous = String::new();
+            for i in raw
+                .char_indices()
+                .map(|(i, _)| i)
+                .chain(std::iter::once(raw.len()))
+            {
+                let next = render_stream_prefix(&raw[..i]);
+                assert!(
+                    next.starts_with(&previous) && expected.starts_with(&next),
+                    "{raw:?} at {i}"
+                );
+                previous = next;
+            }
+        }
+        let raw = "<box>\n\n    <bold>literal</bold>\n    <text>also literal</text>\n</box>";
+        let out = render_for_codex_tui(raw);
+        assert!(
+            out.contains("    <bold>literal</bold>\n    <text>also literal</text>"),
+            "{out:?}"
+        );
+        for (i, _) in raw.char_indices() {
+            assert!(out.starts_with(&render_stream_prefix(&raw[..i])));
+        }
+        let locals = vec![];
+        for raw in ["[1,,3]", "{x:1,x:2}", "01", "+1", "1.", "String.raw`a${x}`"] {
+            assert!(
+                matches!(eval(raw, &locals, 0), Value::Unknown(_)),
+                "{raw:?}"
+            );
+        }
+        assert!(!local_ident("a-b"));
+        assert_eq!(
+            eval("[1,2,]", &locals, 0),
+            Value::Array(vec![Value::Number("1".into()), Value::Number("2".into())])
+        );
+        assert_eq!(
+            render_for_codex_tui("<bold>unfinished\x1b\x07"),
+            "<bold>unfinished"
+        );
+    }
+    #[test]
+    fn static_values() {
+        assert_eq!(render_for_codex_tui("{@body const x = {n: 2}}{x.n}"), "2");
+        assert_eq!(render_for_codex_tui("{#if true}yes{:else}no{/if}"), "yes");
+        let v = render_for_codex_tui("{#if ready}yes{:else}no{/if}");
+        assert!(v.contains("Unknown") && v.contains("yes") && v.contains("no"));
     }
 }
 
@@ -725,9 +1256,9 @@ mod tests {
         let rendered = render_for_codex_tui(raw);
         assert!(rendered.contains("- Visible"));
         assert!(rendered.contains("Hello 한국어"));
-        assert!(!rendered.contains("{item.label}"));
-        assert!(!rendered.contains("{p.n}"));
-        assert!(!rendered.contains("Object.values"));
+        assert!(rendered.contains("[Unavailable: item.label]"));
+        assert!(rendered.contains("[Unavailable: p.n]"));
+        assert!(rendered.contains("[Unavailable: Object.values(checked).length]"));
         assert!(!rendered.contains("<list"));
         assert!(!rendered.contains("{#each"));
         for (i, _) in raw.char_indices() {
@@ -796,7 +1327,7 @@ GitHub의 <Link url="https://github.com/humtr/codex" title="humtr/codex"/> 저�
         assert!(rendered.contains("> **[Diagram]** AppHost · Turn Assembly"));
         assert!(rendered.contains("---"));
         assert!(rendered.contains("- [x] 검증 완료"));
-        assert!(rendered.contains("Done!"));
+        assert!(rendered.contains("Done[Memory reference unavailable]!"));
         assert!(!rendered.contains("{@body"));
         assert!(!rendered.contains("<svg"));
         assert!(!rendered.contains("<slider"));

@@ -58,25 +58,37 @@ fn matches_utility_prompt(lower: &str) -> bool {
 fn matches_utility_kind(kind: &str) -> bool {
     matches!(
         kind,
-        "title" | "memory" | "memories" | "guardian" | "auto_review"
+        "title" | "thread_title" | "memory" | "memories" | "guardian" | "auto_review"
     ) || kind.starts_with("title_")
         || kind.starts_with("memory_")
+}
+
+fn metadata_kinds(meta: &Value) -> [String; 3] {
+    ["request_kind", "thread_source", "turn_trigger"].map(|key| {
+        meta.get(key)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase()
+    })
+}
+
+fn compaction_kind(kind: &str) -> bool {
+    kind.contains("compact")
+}
+
+pub fn is_compaction_request(meta: Option<&Value>) -> bool {
+    meta.is_some_and(|m| metadata_kinds(m).iter().any(|kind| compaction_kind(kind)))
 }
 
 /// Detect Codex background utility calls without diverting normal turns or
 /// compaction/handoff into the temporary utility lane.
 pub fn is_background_utility_request(turn_meta: Option<&Value>, body: &Value) -> bool {
     if let Some(meta) = turn_meta {
-        let kinds = ["request_kind", "thread_source", "turn_trigger"].map(|key| {
-            meta.get(key)
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .trim()
-                .to_ascii_lowercase()
-        });
+        let kinds = metadata_kinds(meta);
         if kinds
             .iter()
-            .any(|kind| kind.contains("compact") || kind.contains("handoff"))
+            .any(|kind| compaction_kind(kind) || kind.contains("handoff"))
         {
             return false;
         }
@@ -531,6 +543,14 @@ impl TurnPlan {
                     .remote_head
                     .as_deref()
                     .is_some_and(|id| !id.is_empty());
+                if state.output_unavailable
+                    && (explicit_previous.is_some() || !matches_request_prefix || !has_head)
+                {
+                    return Err(ProviderError::bad_request(
+                        "native_reconciliation_required",
+                        "prior remote turn settled without a published output; inspect that turn before continuing with its exact submitted input prefix",
+                    ));
+                }
                 let is_delta_with_prev = explicit_previous.is_some()
                     && !canonical.is_empty()
                     && canonical.iter().all(|item| {
@@ -689,7 +709,7 @@ impl TurnPlan {
         threads: &ResponseThreadMap,
         session_key: Option<&str>,
         settled: &Value,
-        output: &Value,
+        output: Option<&Value>,
         project_id: Option<String>,
     ) -> Result<()> {
         let Some(chat_id) = settled["chat_id"]
@@ -708,7 +728,7 @@ impl TurnPlan {
             .filter(|s| !s.is_empty() && s.len() <= 256)
             .map(str::to_owned);
         let canonical_output = output
-            .as_array()
+            .and_then(Value::as_array)
             .map(|arr| {
                 arr.iter()
                     .filter_map(|item| canonical_item(item).transpose())
@@ -727,6 +747,7 @@ impl TurnPlan {
                 remote_head,
                 request_input_len: self.input_len,
                 request_input_sha256: self.input_digest,
+                output_unavailable: output.is_none(),
             }),
         };
         let key = match session_key {

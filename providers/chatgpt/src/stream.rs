@@ -121,12 +121,20 @@ pub struct AssembledItem {
 #[derive(Default)]
 pub struct TurnAssembly {
     pub items: Vec<AssembledItem>,
+    preserve_text: bool,
     committed_commentaries: HashSet<String>,
     last_committed_commentary: Option<String>,
     lane_overflowed: bool,
 }
 
 impl TurnAssembly {
+    pub fn new(preserve_text: bool) -> Self {
+        Self {
+            preserve_text,
+            ..Self::default()
+        }
+    }
+
     fn strip_duplicate_commentary_prefix(&self, text: &str) -> Option<String> {
         let prev = self.last_committed_commentary.as_deref()?;
         if prev.is_empty() {
@@ -164,7 +172,7 @@ impl TurnAssembly {
         {
             return;
         }
-        if state != ContentState::Mutable {
+        if !self.preserve_text && state != ContentState::Mutable {
             match kind {
                 StreamItemKind::Commentary if committed => {
                     let norm = text.trim().to_owned();
@@ -217,7 +225,14 @@ impl TurnAssembly {
                     }
                     _ => false,
                 };
-                if !extends || state == ContentState::Mutable {
+                if matches!(&existing.content, AssembledContent::Answer(_)) {
+                    // Ignore mutable revisions until settlement. A raw rewrite
+                    // can still extend the projected prefix; only the encoder
+                    // knows which bytes actually reached the consumer.
+                    if !committed && (!extends || state == ContentState::Mutable) {
+                        return;
+                    }
+                } else if !extends || state == ContentState::Mutable {
                     eprintln!("provider: append-only item revised; preserving published prefix");
                     existing.state = ContentState::Committed;
                     return;
@@ -237,7 +252,10 @@ impl TurnAssembly {
 
     pub fn remove_mutable(&mut self, id: &str) {
         for item in &mut self.items {
-            if item.id == id && item.state == ContentState::Streaming {
+            if item.id == id
+                && item.state == ContentState::Streaming
+                && !matches!(&item.content, AssembledContent::Answer(_))
+            {
                 eprintln!("provider: append-only item removed; preserving published prefix");
                 item.state = ContentState::Committed;
             }
@@ -321,19 +339,20 @@ impl TurnAssembly {
             .collect();
 
         if let Some(items) = driver_res.get("items").and_then(Value::as_array) {
+            let mut settled_answer_ids = HashSet::new();
             for entry in items {
                 let kind = entry.get("kind").and_then(Value::as_str).unwrap_or("");
                 let text = entry.get("text").and_then(Value::as_str).unwrap_or("");
-                if text.is_empty() {
-                    continue;
-                }
                 let item_id = entry
                     .get("id")
                     .and_then(Value::as_str)
                     .filter(|s| !s.is_empty())
                     .map(ToOwned::to_owned)
                     .unwrap_or_else(|| format!("{kind}_{}", self.items.len()));
-                if committed_ids.contains(&item_id) {
+                if kind == "answer" {
+                    settled_answer_ids.insert(item_id.clone());
+                }
+                if committed_ids.contains(&item_id) || (text.is_empty() && kind != "answer") {
                     continue;
                 }
                 let stream_kind = match kind {
@@ -348,6 +367,16 @@ impl TurnAssembly {
                     text.to_owned(),
                     ContentState::Committed,
                 );
+            }
+            // The authoritative items array may omit a removed answer. Do
+            // not promote its previously published raw draft into success.
+            for item in &mut self.items {
+                if item.state == ContentState::Streaming
+                    && matches!(&item.content, AssembledContent::Answer(_))
+                    && !settled_answer_ids.contains(&item.id)
+                {
+                    item.content = AssembledContent::Answer(String::new());
+                }
             }
         } else {
             let summary = driver_res
@@ -371,18 +400,26 @@ impl TurnAssembly {
                 .get("assistant_text")
                 .and_then(Value::as_str)
                 .unwrap_or("");
-            if !assistant_text.is_empty()
-                && !self
+            if !assistant_text.is_empty() {
+                let mut answers = self
                     .items
                     .iter()
-                    .any(|item| matches!(item.content, AssembledContent::Answer(_)))
-            {
-                self.upsert_text(
-                    "settled_answer".to_owned(),
-                    StreamItemKind::Answer,
-                    assistant_text.to_owned(),
-                    ContentState::Committed,
-                );
+                    .filter(|item| matches!(item.content, AssembledContent::Answer(_)));
+                let id = match (answers.next(), answers.next()) {
+                    (None, _) => Some("settled_answer".to_owned()),
+                    (Some(item), None) if item.state == ContentState::Streaming => {
+                        Some(item.id.clone())
+                    }
+                    _ => None,
+                };
+                if let Some(id) = id {
+                    self.upsert_text(
+                        id,
+                        StreamItemKind::Answer,
+                        assistant_text.to_owned(),
+                        ContentState::Committed,
+                    );
+                }
             }
         }
 
@@ -537,7 +574,7 @@ impl ResponsesEncoder {
         }
     }
 
-    pub fn flush_ready(&mut self, assembly: &mut TurnAssembly) -> Vec<Value> {
+    pub fn flush_ready(&mut self, assembly: &mut TurnAssembly) -> Result<Vec<Value>> {
         let mut frames = vec![];
         for item in &mut assembly.items {
             if item.emitted || item.state == ContentState::Mutable {
@@ -557,7 +594,7 @@ impl ResponsesEncoder {
                 AssembledContent::Answer(t) => (false, "final_answer", t),
             };
             let committed = item.state == ContentState::Committed;
-            let rendered = if reasoning {
+            let rendered = if reasoning || assembly.preserve_text {
                 text.clone()
             } else if committed {
                 crate::presentation::render_for_codex_tui(text)
@@ -599,6 +636,17 @@ impl ResponsesEncoder {
                 self.open = Some(open);
             }
             let open = self.open.as_mut().unwrap();
+            if open.part_id.is_some()
+                && (open.reasoning() != reasoning || (!reasoning && open.item["phase"] != phase))
+            {
+                if committed {
+                    return Err(ProviderError::internal(
+                        "chatgpt_output_prefix_inconsistent",
+                        "Settled item changed its published phase",
+                    ));
+                }
+                break;
+            }
             if open.part_id.is_none() {
                 open.part_id = Some(item.id.clone());
                 frames.push(open.frame(index, "added", "part", open.part("")));
@@ -609,7 +657,10 @@ impl ResponsesEncoder {
                     open.text = rendered;
                 }
             } else if committed {
-                eprintln!("provider: rendered item revised; preserving emitted prefix");
+                return Err(ProviderError::internal(
+                    "chatgpt_output_prefix_inconsistent",
+                    "Settled output does not extend the published text prefix",
+                ));
             }
             if !committed {
                 break;
@@ -626,11 +677,15 @@ impl ResponsesEncoder {
                 self.close_open(&mut frames);
             }
         }
-        frames.into_iter().map(|v| self.stamp(v)).collect()
+        Ok(frames.into_iter().map(|v| self.stamp(v)).collect())
     }
 
-    pub fn finish(&mut self, assembly: &mut TurnAssembly, settled: &Value) -> (Vec<Value>, Value) {
-        let mut frames = self.flush_ready(assembly);
+    pub fn finish(
+        &mut self,
+        assembly: &mut TurnAssembly,
+        settled: &Value,
+    ) -> Result<(Vec<Value>, Value)> {
+        let mut frames = self.flush_ready(assembly)?;
         let mut closing = vec![];
         self.close_open(&mut closing);
         let usage = &settled["usage"];
@@ -664,7 +719,7 @@ impl ResponsesEncoder {
         let response = self.response("completed", &self.completed_output);
         closing.push(json!({"type": "response.completed", "response": response}));
         frames.extend(closing.into_iter().map(|v| self.stamp(v)));
-        (frames, response)
+        Ok((frames, response))
     }
 
     pub fn failed(&mut self, err: ProviderError) -> Value {

@@ -1198,7 +1198,7 @@ test("temporary chats and project-only memory_scope work on createProject", asyn
   assert.equal(createdBody.memory_scope, "project_v2");
 });
 
-test("live eligible snapshots grow before completion and freeze on rewrite", async () => {
+test("live eligible snapshots grow before completion and retain revised settled answers", async () => {
   let callbacks, ready;
   const started = new Promise((resolve) => { ready = resolve; });
   const { driver, streamUpdates } = createMockEnv({
@@ -1228,7 +1228,9 @@ test("live eligible snapshots grow before completion and freeze on rewrite", asy
   update("a", "final", "rewritten");
   callbacks.onComplete({ usage: { input_tokens: 12, output_tokens: 3 } });
   const settled = await pending;
-  assert.equal(settled.assistant_text, "한국어 🚀");
+  assert.equal(settled.assistant_text, "rewritten");
+  assert.equal(settled.items.find((item) => item.kind === "answer").text, "rewritten");
+  assert.ok(streamUpdates.some((event) => event.committed && event.item_kind === "answer" && event.text === "rewritten"));
   assert.equal(settled.usage.total_tokens, 15);
 });
 

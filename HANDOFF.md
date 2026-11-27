@@ -4,7 +4,7 @@ Prepared 2026-11-27 at the user's request (plan correction and readiness).
 Authority: `AGENTS.md`, `SPEC.md`, `docs/INDEX.md`,
 `docs/spec/CHATGPT_PROVIDER.md`, and [ROADMAP §11](docs/ROADMAP.md#11-deferred-codex-presentation-improvements).
 This is the single active preparation work order, not a new product contract.
-**State: READY FOR CANDIDATE IMPLEMENTATION; product source not edited.**
+**State: ISOLATED SOURCE CANDIDATE CORRECTED AFTER INDEPENDENT REVIEW; final independent review and live/physical gates remain open.**
 The previous Native-return work order is preserved byte-for-byte in Git
 (`git show 3f12f956:HANDOFF.md`), not marked completed. Its replacement
 route and unresolved acceptance risks are recorded in
@@ -50,10 +50,10 @@ No replay or new settlement attempt was performed.
 | --- | --- |
 | P1-00 — baseline/scope | Prepared. Recheck checkout/ownership and update relevant Provider annex before observable behavior changes. |
 | P1-01 — regression oracle | Initial 18-case fixture ready; preserve expected failures until fixed, extend historical/current PTY corpus. |
-| P1-02–05 — semantic projection | NEXT candidate work: one source-aware parser/projection, protected Markdown, literal data and conditional state, native GFM/relations/chart data, truthful static controls and explicit unavailable fallback. |
-| P1-06–07 — integration/regression | Pending: current `stream.rs::ResponsesEncoder::flush_ready`, utility isolation, incremental/settled equivalence, emitted prefix and resume/compaction, no MCP side effects. |
-| P1-08 — qualification | Pending: exact 0.172.0 upstream feature inspection, Rust/JS/CI, real official TUI default-daemon/diagnostic isolated PTY, actual candidate AppHost/account lane and physical UI separately. |
-| P1-09 — closeout | Pending: review docs/source, applicable open §10 risks, signed candidate publication/readback/activation/rollback only as separately authorized. |
+| P1-02–05 — semantic projection | Candidate implemented: shared parser/projection, protected Markdown, supported local literal data/conditions, native GFM/chart data and static controls; unsupported dynamic expressions and geometry remain explicit. |
+| P1-06–07 — integration/regression | Candidate integrated with the existing encoder; automated continuity, machine-output and prefix gates pass. |
+| P1-08 — qualification | Local source pin, Rust/JS/host/docs, isolated CLI/Provider and official synthetic PTY observed; live candidate AppHost/account lane, physical UI, terminal reconstruction, clipboard and natural TUI exit not qualified. |
+| P1-09 — closeout | Independent review pending; preserve applicable open §10 risks. Publication/readback/activation/rollback require separate authorization. |
 
 ## Implementation boundaries
 
@@ -76,6 +76,56 @@ No replay or new settlement attempt was performed.
   no operating account/profile. Recheck current upstream/host before live
   tests; live inference using an operating account, switching services,
   signed publication and Phase 2 are not authorized by preparation.
-- Stop scope at this preparation checkpoint; source implementation is the
-  next task. Do not claim Phase 1, physical TUI or product qualification
-  completed from the current synthetic failures.
+- Source candidate evidence is recorded below. Do not claim full Phase 1,
+  physical TUI, authenticated AppHost or release qualification from synthetic
+  evidence. Do not switch the running generation.
+
+## Candidate implementation evidence (2026-11-27)
+
+- Work: `work_78a0bb522ddfa34b`, isolated branch
+  `phase1/tui-work_78a0bb522ddfa34b`. Candidate includes the concurrent
+  main update `ef02c3fe`; main itself was not changed by this Work.
+- Initial W1–W3 authentication failures and W4/W5 timeout failures are
+  retained in the orchestration ledger. W7 and W8 returned independently
+  scoped parser/renderer edits. W6 qualified the exact upstream source and
+  installed Wrapper using isolated fixture-driven PTYs.
+- Original 18-case oracle 18/18 (only Cargo test-entry annotation added);
+  additional 23/23 groups, 48/48 deterministic malformed UTF-8-prefix cases.
+  Legacy rendering tests restored; obsolete silent-omission assertions now
+  require explicit unknown markers. Both oracles run under Cargo.
+- `$PREFIX/tmp/p1-final-gates.IRbIKI/`: fmt, strict clippy, locked
+  offline Rust under umask 0022 and 0077 (53 main tests + two 14-test
+  oracle targets passed each), JS 17/17, host 8/8, doc links, standalone
+  oracles. The ignored official CLI integration test was run separately
+  against the candidate loopback MockDriver and passed (native-provider.log).
+- `$PREFIX/tmp/phase1-independent-w-TmbIar/`: official 0.172.0 source
+  and isolated default-daemon/no-daemon PTY, streaming, transcript and
+  resume probes. `$PREFIX/tmp/p1-candidate-pty.U2bNRc/`: actual
+  candidate-projected fixture streamed through installed official Wrapper
+  at 100/80/48/32 columns (end marker at all widths). These are raw/stripped
+  PTY observations, not a reconstructed or physical screen. Copy remained
+  unconfirmed and the interactive processes were harness-terminated
+  (wait status 15); do not count these as clipboard or clean-exit passes.
+- Scope limitations: deterministic literals, local bindings and explicitly
+  supported primitive operations only; unknown iteration/external bindings,
+  unsupported expressions and interactions are static/unavailable. A
+  128-level nesting guard retains the deep literal region with an explicit
+  marker; 128/512-depth and ~100 KiB cases were exercised. No arbitrary
+  runtime, external retrieval or invented chart values/geometry.
+- V1 review of 8d268653 was inconclusive. W9 independently reran all
+  12 gate commands (exit 0, $PREFIX/tmp/p1-independent-rerun.MFaNTi).
+  W10/W11 independent review found parser and encoder/continuity defects.
+  W12/W13 repaired disjoint parser/renderer paths in isolated worktrees;
+  Lead integrated and simplified the table traversal, corrected visible
+  answer settlement through page_driver/assembly/encoder, normalized
+  compaction bypass, and persisted failed-publication receipts using the
+  existing ThreadBinding. Executable regressions cover compatible raw
+  rewrites, incompatible revisions/removal, durable readback, replay
+  rejection and exact-prefix continuation. Original oracle unchanged.
+  The older PTY evidence applies to the earlier candidate, not this
+  corrected source. Numeric-dollar/prose and identifier-adjacent markup
+  use a conservative grammar; genuinely ambiguous literal markup may
+  remain buffered and unresolved expressions stay explicit.
+- No authenticated live candidate AppHost, Android physical UI, signed
+  package, publication, activation or rollback test is authorized or
+  qualified by this candidate. Independent verdict remains necessary.

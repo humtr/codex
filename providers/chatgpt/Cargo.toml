@@ -23,3 +23,13 @@ toml = "0.8"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["test-util"] }
+
+# Keep the original standalone qualification binaries runnable with rustc
+# and execute the same oracles in the ordinary Cargo test boundary.
+[[test]]
+name = "presentation_preflight"
+path = "tests/fixtures/presentation_preflight.rs"
+
+[[test]]
+name = "presentation_adversarial"
+path = "tests/fixtures/presentation_adversarial.rs"
