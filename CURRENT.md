@@ -29,13 +29,15 @@ qualification receipts have not been independently refreshed in this preflight.
 
 **Targeted refresh (2026-11-27):** the table above retains the earlier
 2026-11-25 snapshot for components not refreshed here. The selected upstream
-is now `releases/0.172.0-faf17b` (`codex-cli 0.172.0`). Provider and Orch
-are selected and running at `0.1.0-5a865216` (PIDs 18270 and 10032; actual
-executable SHA-256 values match the latest signed rollout record below).
-AppHost selected `26.1120.50957`; Provider health reports `ok=true` and
-`host_running=true`. The earlier local E01/Thin Option B activation is
-historical, not the active route. This refresh did not independently
-requalify other components, the release signatures or an authenticated turn.
+is now `releases/0.172.0-faf17b` (`codex-cli 0.172.0`). Signed live generations
+now active include Provider `0.1.0-368a1e0d` (`sequence=53`, PID `2497`),
+`termux-shell-mcp` `0.1.0-eb19e206` (`sequence=16`, PID `29393`), and Orch
+`0.1.0-5a865216` (`sequence=25`, PID `10032`); actual executable SHA-256 values
+match the signed rollout records below. AppHost selected `26.1120.50957`;
+Provider health/status reports `ok=true`, `host_running=true`,
+`auth_state=authenticated`, and `completion_ready=true`. The earlier local
+E01/Thin Option B activation is historical, not the active route. This refresh
+did not independently requalify unmodified components.
 
 ### Unverified / Remaining Boundaries
 
