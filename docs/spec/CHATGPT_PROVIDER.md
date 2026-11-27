@@ -47,7 +47,8 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
   process startup, the profile lease, and exit collection. It detects Provider
   disconnection independently of CDP and holds the lease through descendant
   reaping and X11 cleanup. Startup preserves Chromium's singleton artifacts
-  and fails closed on a live or unverified singleton. The installed PRoot
+  and fails closed on a live ChatGPT/Electron singleton while treating dead or
+  recycled non-ChatGPT PIDs in `SingletonLock` as stale. The installed PRoot
   requires no patch. Direct supervisor death is outside its cleanup guarantee.
   Shutdown gives Chromium a bounded exit window after `Browser.close` before
   escalating through PRoot. The account-free generation probe uses the same
@@ -64,9 +65,18 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
   onboarding screens, tutorials, modals, or DOM layout. Never modifies app
   files, never reads or exposes cookies/auth tokens, never hardcodes chunk
   hashes or minified symbol names, and never synthesizes private reasoning.
-- **Type 1 (`codex -p chatgpt`) surface:** Localhost-only `GET /v1/models` and
-  `POST /v1/responses` (monotonic OpenAI Responses SSE or JSON) supporting
-  single-path in-app tool callbacks via `local_function_signatures`. The
+- **Type 1 (`codex -p chatgpt`) surface (MCP Single-Turn):** Localhost-only
+  `GET /v1/models` and `POST /v1/responses` (monotonic OpenAI Responses SSE or
+  JSON) dispatching **one prompt-box-identical `POST /f/conversation` per user
+  turn** with **zero `local_function_names` / `local_function_signatures`**.
+  Host execution and multi-step tool loops are performed server-side inside
+  that single `/f/conversation` turn through registered ChatGPT remote MCP
+  connectors (`TermuxShell`, `TermuxCodex`, `TermuxChatGPT`, and future
+  `TermuxOrch`). The retired client-side `local_function_names` /
+  `pending_calls` implementation is archived for developer reference in
+  [providers/chatgpt/archive/local-tools](../../providers/chatgpt/archive/local-tools/README.md),
+  and `turn.rs` preserves a clean `TurnStrategy` extension seam for future
+  execution modes. The
   Provider also maintains a Codex-compatible catalog file at
   `<state_dir>/model-catalog.json` (`0600`, atomic; seeded from configured
   fallback models at startup and refreshed whenever `GET /v1/models`,
@@ -79,54 +89,54 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
   selectable reasoning efforts and `"supports_reasoning_summary_parameter": true`,
   and routes `/v1/responses` dispatches to the
   corresponding ChatGPT variant slug according to the requested reasoning
-  effort. When
-  Codex supplies deferred nested tools through Code Mode, the description
-  sent to the AppHost retains the advertised `ALL_TOOLS` discovery instruction
-  within the description bound.
+  effort.
 - **Single-adapter streaming lifecycle (`Page Driver -> LaneMailbox -> TurnAssembly -> ResponsesEncoder`):**
   The Provider normalizes ChatGPT AppHost completions through one lifecycle
-  pipeline shared by both streaming (`stream=true`) and non-streaming
-  (`stream=false`) `/v1/responses` execution:
+  pipeline (`catalog.rs`, `session.rs`, `turn.rs`, `stream.rs`, `responses.rs`)
+  shared by both streaming (`stream=true`) and non-streaming (`stream=false`)
+  `/v1/responses` execution:
   - `page_driver.js` requests `supported_encodings: ["v1"]` and observes
     messages through `onDecodedEvent` as the single authoritative stream path
     (with an `onUpdate` fallback only when `onDecodedEvent` has not fired).
   - Messages are normalized per item ID and semantic channel (`reasoning_summary`,
-    `commentary`, `answer`, and native `tool_call`), distinguishing uncommitted
-    `Mutable` snapshots (`in_progress`) from `Committed` outputs (`status !==
-    "in_progress"`, `end_turn === true`, finished `thoughts` entries, or turn
-    settlement). Uncommitted snapshot revisions, insertions, or deletions update
-    in-place without failing settled streams.
-  - Simultaneous `commentary` + `reasoning` passthrough:
+    `commentary`, and `answer`), distinguishing uncommitted `Mutable` snapshots
+    (`in_progress`) from append-only `Streaming` prefixes and `Committed`
+    outputs (`status !== "in_progress"`, `end_turn === true`, finished
+    `thoughts` entries, or turn settlement). Uncommitted snapshot revisions,
+    insertions, or deletions update in-place without failing settled streams.
+  - Simultaneous `commentary` + `reasoning` + MCP progress passthrough:
     - Public interim progress messages (`channel === "commentary"`,
       `is_thinking_preamble_message === true`, `status === "finished_partial_completion"`,
-      `end_turn === false`, or uncommitted pre-tool assistant messages) and
-      optional per-tool `report` progress text (injected only on `type: "function"`
-      tools without an existing `report` property and strictly stripped before
-      forwarding `arguments` to Codex) emit as `type: "message", phase: "commentary"`
-      so Codex TUI displays step-by-step commentary inline alongside tool calls.
+      or `end_turn === false`) emit as `type: "message", phase: "commentary"`
+      so Codex TUI displays step-by-step progress inline.
       Each ChatGPT message `msgKey` owns at most one canonical text item ID so
       late status updates never duplicate an already-committed message (only
       genuine strict-suffix extensions emit incremental follow-up items), and
       `TurnAssembly` suppresses exact duplicate commentary items and repeated
       commentary prefixes in `final_answer` without discarding unique content.
+    - Remote MCP tool calls and completions observed in the `onDecodedEvent`
+      stream (`author.role === "tool"` or assistant calls targeting a remote
+      MCP recipient) emit concise live progress summaries (`reasoning_summary`)
+      and reset the upstream idle timer (`activity`) so long single-turn
+      builds/tests remain visibly active in Codex TUI.
     - Narrow DIL-to-GFM presentation projection (`presentation.rs`): committed
       `commentary` and `final_answer` messages translate allowlisted ChatGPT DIL
       UI tags (`<Link>`, `<badge>`, `<row>`, `<grid>`/`<grid-item>`/`<caption>`,
       `<title>`, `<text>`, `<box>`, `<card>`, `<divider>`, `<svg>` labels,
       `<checkbox>`, `<MemoryCite>`, and `{@body}`/`{#if}` directives) outside
       fenced/inline code into Codex-native GFM Markdown while preserving code
-      blocks, inline code, unknown HTML/generics, tool arguments, and `readChat`
-      host history verbatim.
+      blocks, inline code, unknown HTML/generics, and `readChat` host history
+      verbatim.
     - Full AppHost reasoning emitted by the model (`thoughts[*]` entries with
       `summary` + `content` / `chunks`, formatted as `**{summary}**\n{content}`
       when both are present; `thoughts` `parts`/`content`; `channel === "analysis"`
-      text; `reasoning_recap`; deduplicated `metadata.{rich_reasoning_titles,
-      reasoning_titles, reasoning_title}`) emits simultaneously as
-      `type: "reasoning"` (`summary_text`) for Codex's live working status line
-      and `Ctrl+T` transcript. The Provider never synthesizes private reasoning,
-      never leaks user echo messages or non-reasoning tool payloads into
-      reasoning, and keeps `readChat` focused on visible `user`/`assistant`
-      conversation history.
+      text; `reasoning_recap` such as `Worked for Ns`; deduplicated
+      `metadata.{rich_reasoning_titles, reasoning_titles, reasoning_title}`)
+      emits simultaneously as `type: "reasoning"` (`summary_text`) for Codex's
+      live working status line and `Ctrl+T` transcript. The Provider never
+      synthesizes private reasoning, never leaks user echo messages or raw tool
+      payloads into reasoning, and keeps `readChat` focused on visible
+      `user`/`assistant` conversation history.
   - Background utility isolation: Codex background utility calls (identified via
     `x-codex-turn-metadata` `request_kind != "turn"` or `memory_consolidation`,
     or tool-less title/memory prompts) bypass session leasing, project pinning,
@@ -137,26 +147,26 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
     non-blocking `LaneMailbox` that coalesces rapid mutable snapshots per item
     without stalling sibling lanes and queues committed/terminal events
     losslessly.
-  - `responses.rs` maintains one authoritative `TurnAssembly` (`Mutable` vs
-    `Committed`) and one `ResponsesEncoder` that emits immutable Responses
-    frames for committed items and explicitly stable append-only prefixes. Arbitrary
-    mutable snapshots remain buffered; observing prefix growth alone cannot prove
-    that a subsequent snapshot will not replace or delete the prefix. A violation
-    of an already emitted prefix fails closed rather than corrupting SSE.
-    DIL presentation is applied before text emission; incomplete presentation
-    constructs are buffered. Tool calls remain deferred until durable binding.
-    If a turn supplies only a user-visible summary with no answer or tool call,
-    the same text is returned as the final answer. The stream has a five-minute
+  - `stream.rs` maintains one authoritative `TurnAssembly` (`Mutable`,
+    `Streaming`, `Committed`) and one `ResponsesEncoder` that emits immutable
+    Responses frames for committed items and explicitly stable append-only
+    prefixes. Arbitrary mutable snapshots remain buffered; a violation of an
+    already emitted prefix freezes the published prefix rather than corrupting
+    SSE. DIL presentation is applied before text emission; incomplete
+    presentation constructs are buffered. If a turn supplies only a
+    user-visible summary with no answer, the same text is returned as the final
+    answer. The stream emits 12-second SSE keepalives with a five-minute
     upstream inactivity limit and a two-hour total limit.
   - Completed Responses include upstream token usage when explicitly reported;
     otherwise a deterministic estimate based on the UTF-8 JSON size of logical
-    input, instructions, tool declarations and emitted output (four bytes per
-    token, rounded up) is marked as estimated. This is not a billing measurement
-    or proof of backend context capacity. The catalog retains the 1M context,
-    95% effective window and 800k auto-compact baseline.
-  - Optional `[server] min_request_interval_ms` (default 0) spaces completion
-    dispatch starts across lanes in the AppHost. Server Retry-After deadlines
-    reject subsequent dispatches until expiry; no automatic replay.
+    input, instructions, and emitted output (four bytes per token, rounded up)
+    is marked as estimated. This is not a billing measurement or proof of
+    backend context capacity. The catalog retains the 1M context, 95% effective
+    window, and 800k auto-compact baseline.
+  - Server `Retry-After` deadlines reject subsequent dispatches until expiry;
+    no automatic replay. Legacy `[server] min_request_interval_ms` and
+    `[history] structured_native_return` config keys are accepted as ignored
+    compatibility fields so existing `chatgpt.toml` files load cleanly.
   - Client disconnect before remote settlement cancels only that lane via
     `stop_generation` without recording continuation. Remote settlement
     disarms cancellation, reconciles the final assembly, and persists up to 256
@@ -169,54 +179,50 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
   - Account and project are checked before using a stored conversation. An
     incompatible Codex input prefix starts a new ChatGPT conversation under the
     same account pin.
-- **Unified Thin Option B structured Native return (`CompletionClient.startCompletionStream`):**
-  All `/v1/responses` turns run on Thin Option B (the legacy Option A
-  prompt-flattening path is retired and archived for developer reference in
-  [LEGACY_PROMPT_PATH.md](../history/LEGACY_PROMPT_PATH.md); `history.structured_native_return`
-  is retained as a default-`true` compatibility key).
-  - User content, original native call bindings, typed tool results, `agent_message`
-    items, and authorized `developer` context remain distinct. Unsupported
-    content types (such as `input_image`) fail closed with HTTP 400
-    `native_content_unsupported`.
+- **Single-Turn MCP Execution & Context Bridge (`turn.rs` + `session.rs`):**
+  All `/v1/responses` user turns dispatch as a single native ChatGPT
+  `CompletionClient.startCompletionStream` request (identical to typing in the
+  regular ChatGPT prompt box, preserving `Worked for Ns >` and expand/collapse
+  in the ChatGPT App UI):
+  - User content, `agent_message` items, and authorized `developer` context
+    remain distinct. Unsupported content types (such as `input_image`) fail
+    closed with HTTP 400 `native_content_unsupported`.
   - Supported Codex `developer` messages travel as hidden AppHost `developer`
     messages in input order. Codex's automatic machine-generated `role: "user"`
     preambles (`# AGENTS.md instructions`, `<environment_context>`,
-    `<collaboration_mode>`, `<turn_aborted>`) remain `author.role = "user"`
-    (zero privilege escalation) and are marked
+    `<collaboration_mode>`, `<turn_aborted>`, `<subagent_notification>`) remain
+    `author.role = "user"` (zero privilege escalation) and are marked
     `is_visually_hidden_from_conversation: true` so ChatGPT reads them while
     showing only genuine human prompts in the conversation UI.
   - Request-level `instructions` travel on user turns as a trailing hidden
     `developer` message with `exclude_after_next_user_message: true` so they
-    apply across the turn's tool rounds and expire on the next user message;
-    unchanged `instructions` stay implicit on tool-return rounds while
-    mid-round changes fail closed with `native_instruction_scope_changed`.
-  - Structured tool results travel as `author.role = "tool"` (`channel =
-    "commentary"`, `content_type = "code"`, JSON `{ call_id, result, tool }`,
-    `is_visually_hidden_from_conversation = true`) directly through AppHost's
-    unified `CompletionClient.startCompletionStream` with Codex's declared
-    `local_function_names` / `local_function_signatures` preserved on every
-    round (`parallel_tool_calls: true`, zero-arg calls normalized to `"{}"`,
-    empty tool output arrays `[]` normalized to `[""]`, duplicate identical
-    `(namespace, name)` declarations deduplicated, companion `developer`
-    updates allowed in input order).
+    apply to the turn and expire on the next user message. When `[mcp]
+    bridge_guidance = true` (default), `turn.rs` appends a concise one-turn
+    MCP execution bridge directive carrying the resolved workspace `cwd` and
+    the active Stage 2 MCP connector roles (`TermuxShell` for host shell/file
+    work with required `call_id`, `TermuxChatGPT` for other ChatGPT
+    chats/projects, `TermuxCodex` for independent Codex daemon threads) so
+    ChatGPT does not attempt retired local CLI function tools.
+  - Per-`chat_id` single-flight in `page_driver.js` prevents self-chat and
+    cyclic re-entry (`generation_already_active`, returning a clear recovery
+    error to the MCP call without interrupting the active turn) while allowing
+    unbounded parallel sibling lanes up to `MAX_CONCURRENT_GENERATING`. Native
+    `codex app-server` (`TermuxCodex`) runs on `~/.codex/config.toml` rather
+    than `~/.codex/chatgpt.config.toml`, keeping the daemon leaf physically
+    separate from the `:4319` Provider loop.
   - The Page Driver trusts AppHost's natural `onDecodedEvent` / `onComplete` /
-    `onError` lifecycle without redundant per-round `GET /conversation/{id}`
-    polling or permanent `dispatching: true` session lockouts, and caches
-    verified account identity (`GET /me`) with a 10-minute TTL on structured
-    turns. Committed visible output streams in order up to the first pending
-    tool call; tool bindings persist to `response_threads.json` upon settlement
-    before emitting tool-call output items.
-  - On client disconnect (`Ctrl+C`) during either a user turn or a tool-return
-    round, `CancelTurnGuard` cancels only the active lane without writing a
-    lockout state; subsequent user turns recover cleanly (clearing abandoned
-    pending tool calls when no tool outputs or `previous_response_id` are sent).
-    When Codex compacts or resets history without `previous_response_id`, the
-    Provider hands off cleanly to a fresh ChatGPT conversation.
+    `onError` lifecycle without redundant `GET /conversation/{id}` polling and
+    caches verified account identity (`GET /me`) and active connector summaries
+    with bounded TTLs.
+  - On client disconnect (`Ctrl+C`), `CancelTurnGuard` cancels only the active
+    lane without locking the session. When Codex compacts or resets history
+    without `previous_response_id`, the Provider hands off cleanly to a fresh
+    ChatGPT conversation.
   - **Background utility isolation:** Codex background utility sub-sessions
     (`title_gen` including 4-item `"concise, single-line task title"` requests,
     `memories`, `auto_review`/`guardian`) bypass the session lease, strip heavy
-    Codex developer/AGENTS.md boilerplate, omit tools, route to `-instant` with
-    no reasoning effort, and default to ChatGPT temporary chats
+    Codex developer/AGENTS.md boilerplate, omit MCP bridge guidance, route to
+    `-instant` with no reasoning effort, and default to ChatGPT temporary chats
     (`history_and_training_disabled: true`, `is_do_not_remember: true`) so zero
     permanent sidebar chats or `response_threads.json` entries are created.
     Operators may optionally configure `history.utility_project_id` or
