@@ -155,8 +155,9 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
     SSE. DIL presentation is applied before text emission; incomplete
     presentation constructs are buffered. If a turn supplies only a
     user-visible summary with no answer, the same text is returned as the final
-    answer. The stream emits 12-second SSE keepalives with a five-minute
-    upstream inactivity limit and a two-hour total limit.
+    answer. The stream emits 12-second SSE keepalives with a configurable
+    upstream inactivity limit (`[server] sse_idle_secs`, default 660s / 11
+    minutes, valid range `30..=7200`) and a two-hour total limit.
   - Completed Responses include upstream token usage when explicitly reported;
     otherwise a deterministic estimate based on the UTF-8 JSON size of logical
     input, instructions, and emitted output (four bytes per token, rounded up)

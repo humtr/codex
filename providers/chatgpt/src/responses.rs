@@ -19,9 +19,11 @@ use crate::config::{random_hex, HistoryConfig, McpConfig, ModelConfig};
 use crate::driver::DriverBackend;
 use crate::error::Result;
 use crate::session::{wire_uuid, ThreadLease};
+#[cfg(test)]
+use crate::stream::SSE_IDLE;
 use crate::stream::{
     estimate_tokens, format_sse_frame, send_chunk, send_frames, CancelTurnGuard, MpscSseStream,
-    ResponsesEncoder, TurnAssembly, RESPONSES_WAIT_MS, SSE_IDLE, SSE_KEEPALIVE_INTERVAL, SSE_LIMIT,
+    ResponsesEncoder, TurnAssembly, RESPONSES_WAIT_MS, SSE_KEEPALIVE_INTERVAL, SSE_LIMIT,
 };
 use crate::turn::{
     build_utility_wire_messages, derive_auto_project_name, extract_workspace_cwd,
@@ -35,6 +37,7 @@ use axum::{
 use serde_json::{json, Value};
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::mpsc;
 
 pub async fn handle_models(
@@ -106,6 +109,7 @@ pub async fn handle_responses(
         session_hint,
         None,
         live_models,
+        SSE_IDLE,
         body,
     )
     .await
@@ -121,6 +125,7 @@ pub async fn handle_responses_with_metadata(
     session_hint: Option<String>,
     turn_metadata: Option<Value>,
     live_models: Option<&LiveModelSet>,
+    sse_idle: Duration,
     body: Value,
 ) -> Result<Response> {
     let requested_model = body
@@ -223,6 +228,7 @@ pub async fn handle_responses_with_metadata(
             lane_id,
             encoder,
             stream,
+            sse_idle,
         )
         .await;
     }
@@ -330,6 +336,7 @@ pub async fn handle_responses_with_metadata(
         lane_id,
         encoder,
         stream,
+        sse_idle,
     )
     .await
 }
@@ -346,6 +353,7 @@ async fn dispatch_responses_turn(
     lane_id: String,
     mut encoder: ResponsesEncoder,
     stream: bool,
+    sse_idle: Duration,
 ) -> Result<Response> {
     if !stream {
         let _lease = lease;
@@ -381,7 +389,7 @@ async fn dispatch_responses_turn(
             tokio::time::Instant::now() + SSE_KEEPALIVE_INTERVAL,
             SSE_KEEPALIVE_INTERVAL,
         );
-        let idle = tokio::time::sleep(SSE_IDLE);
+        let idle = tokio::time::sleep(sse_idle);
         let limit = tokio::time::sleep(SSE_LIMIT);
         tokio::pin!(idle, limit);
         let mut event_open = true;
@@ -398,12 +406,16 @@ async fn dispatch_responses_turn(
                 )),
                 _ = &mut idle => break Err(crate::error::ProviderError::unavailable(
                     "chatgpt_stream_idle",
-                    "no upstream event within five minutes",
+                    if sse_idle.as_secs() > 0 {
+                        format!("no upstream event within {}s", sse_idle.as_secs())
+                    } else {
+                        format!("no upstream event within {}ms", sse_idle.as_millis())
+                    },
                 )),
                 event = event_rx.recv(), if event_open => {
                     match event {
                         Some(event) => {
-                            idle.as_mut().reset(tokio::time::Instant::now() + SSE_IDLE);
+                            idle.as_mut().reset(tokio::time::Instant::now() + sse_idle);
                             assembly.apply_event(event);
                             let frames = encoder.flush_ready(&mut assembly);
                             if !frames.is_empty() && !send_frames(&tx, frames).await {

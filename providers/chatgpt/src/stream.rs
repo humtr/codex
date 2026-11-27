@@ -15,7 +15,9 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 pub const RESPONSES_WAIT_MS: u64 = 240_000;
-pub const SSE_IDLE: Duration = Duration::from_secs(300);
+pub const SSE_IDLE: Duration = Duration::from_secs(660);
+pub const SSE_IDLE_MIN_SECS: u64 = 30;
+pub const SSE_IDLE_MAX_SECS: u64 = 2 * 60 * 60;
 pub const SSE_LIMIT: Duration = Duration::from_secs(2 * 60 * 60);
 pub const SSE_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(12);
 

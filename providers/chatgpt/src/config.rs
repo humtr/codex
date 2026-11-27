@@ -74,6 +74,10 @@ pub struct ServerConfig {
     /// Minimum time between AppHost completion dispatches (milliseconds).
     #[serde(default)]
     pub min_request_interval_ms: u64,
+    /// Upstream SSE inactivity timeout in seconds before aborting an unresponsive stream
+    /// (default: 660s / 11 minutes, exceeding `termux_shell` max timeout of 600s; valid range: 30..=7200).
+    #[serde(default = "default_sse_idle_secs")]
+    pub sse_idle_secs: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -142,12 +146,23 @@ fn default_models() -> Vec<String> {
     vec!["auto".to_owned()]
 }
 
+fn default_sse_idle_secs() -> u64 {
+    crate::stream::SSE_IDLE.as_secs()
+}
+
+impl ServerConfig {
+    pub fn sse_idle_timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(self.sse_idle_secs)
+    }
+}
+
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
             bind: default_bind(),
             state_dir: None,
             min_request_interval_ms: 0,
+            sse_idle_secs: default_sse_idle_secs(),
         }
     }
 }
@@ -202,6 +217,19 @@ impl ProviderConfig {
             return Err(ProviderError::bad_request(
                 "loopback_bind_required",
                 "server.bind must be a loopback address (127.0.0.1 or ::1)",
+            ));
+        }
+        if !(crate::stream::SSE_IDLE_MIN_SECS..=crate::stream::SSE_IDLE_MAX_SECS)
+            .contains(&self.server.sse_idle_secs)
+        {
+            return Err(ProviderError::bad_request(
+                "invalid_sse_idle_secs",
+                format!(
+                    "server.sse_idle_secs must be between {} and {} (got {})",
+                    crate::stream::SSE_IDLE_MIN_SECS,
+                    crate::stream::SSE_IDLE_MAX_SECS,
+                    self.server.sse_idle_secs
+                ),
             ));
         }
         Ok(())
@@ -384,4 +412,31 @@ pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
         diff |= x ^ y;
     }
     diff == 0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn server_sse_idle_secs_defaults_to_660_and_validates_bounds() {
+        let def: ProviderConfig = toml::from_str("").unwrap();
+        assert_eq!(def.server.sse_idle_secs, 660);
+        assert_eq!(
+            def.server.sse_idle_timeout(),
+            std::time::Duration::from_secs(660)
+        );
+        def.validate().unwrap();
+
+        let custom: ProviderConfig = toml::from_str("[server]\nsse_idle_secs = 900\n").unwrap();
+        assert_eq!(custom.server.sse_idle_secs, 900);
+        custom.validate().unwrap();
+
+        for bad in [0u64, 29, 7201] {
+            let cfg: ProviderConfig =
+                toml::from_str(&format!("[server]\nsse_idle_secs = {bad}\n")).unwrap();
+            let err = cfg.validate().unwrap_err();
+            assert_eq!(err.code, "invalid_sse_idle_secs");
+        }
+    }
 }

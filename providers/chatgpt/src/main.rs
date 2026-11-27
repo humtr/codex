@@ -293,6 +293,7 @@ async fn run() -> Result<()> {
             }
 
             let driver_dyn: Arc<dyn DriverBackend> = driver.clone();
+            let sse_idle = cfg.server.sse_idle_timeout();
             let app = build_router_with_threads(
                 driver_dyn,
                 cfg.model,
@@ -302,6 +303,7 @@ async fn run() -> Result<()> {
                 viewer_slot,
                 threads,
                 Some(catalog_path),
+                sse_idle,
             );
             eprintln!(
                 "chatgpt-provider {} listening on http://{} (control token: {})",
@@ -1540,6 +1542,7 @@ wire_api = "responses"
             Arc::new(RwLock::new(None)),
             crate::responses::ResponseThreadMap::default(),
             Some(catalog_path.clone()),
+            crate::stream::SSE_IDLE,
         );
 
         let res = oneshot(
@@ -2149,5 +2152,112 @@ wire_api = "responses"
         );
         assert_eq!(json_out[0]["content"][0]["text"].as_str().unwrap(), c_text);
         assert_eq!(json_out[1]["content"][0]["text"].as_str().unwrap(), a_text);
+    }
+
+    #[tokio::test]
+    async fn configured_sse_idle_aborts_stalled_stream_and_cancels_lane() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        struct HangingDriver {
+            stopped: Arc<AtomicBool>,
+        }
+        impl DriverBackend for HangingDriver {
+            fn host_running(&self) -> BoxFuture<'_, bool> {
+                Box::pin(async { true })
+            }
+            fn status(&self) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok"})) })
+            }
+            fn list_chats(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok","chats":[]})) })
+            }
+            fn read_chat(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok","messages":[]})) })
+            }
+            fn rename_chat(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok"})) })
+            }
+            fn list_projects(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok","projects":[]})) })
+            }
+            fn read_project(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok"})) })
+            }
+            fn create_project(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok"})) })
+            }
+            fn send_message(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async {
+                    tokio::time::sleep(Duration::from_secs(30)).await;
+                    Ok(json!({"state":"settled"}))
+                })
+            }
+            fn stream_message(
+                &self,
+                _p: Value,
+                _tx: crate::cdp::LaneSender,
+            ) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async {
+                    tokio::time::sleep(Duration::from_secs(30)).await;
+                    Ok(json!({"state":"settled"}))
+                })
+            }
+            fn observe_chat(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"settled"})) })
+            }
+            fn stop_generation(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                self.stopped.store(true, Ordering::Release);
+                Box::pin(async { Ok(json!({"state":"stopped","stopped":true})) })
+            }
+            fn viewer_info(&self) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok","available":false})) })
+            }
+            fn restart_host(&self) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok"})) })
+            }
+            fn list_connectors(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok","tunnels":[],"connectors":[]})) })
+            }
+            fn register_connector(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok"})) })
+            }
+            fn refresh_connector(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok"})) })
+            }
+        }
+
+        let stopped = Arc::new(AtomicBool::new(false));
+        let driver: Arc<dyn DriverBackend> = Arc::new(HangingDriver {
+            stopped: Arc::clone(&stopped),
+        });
+        let resp = crate::responses::handle_responses_with_metadata(
+            driver,
+            &Default::default(),
+            &Default::default(),
+            &Default::default(),
+            Arc::new(Default::default()),
+            None,
+            None,
+            None,
+            Duration::from_millis(80),
+            json!({"input": "Wait forever", "stream": true}),
+        )
+        .await
+        .unwrap();
+        let raw = String::from_utf8(
+            to_bytes(resp.into_body(), 1024 * 1024)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(raw.contains("response.failed"), "got: {raw}");
+        assert!(raw.contains("chatgpt_stream_idle"), "got: {raw}");
+        assert!(raw.contains("no upstream event within 80ms"), "got: {raw}");
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        assert!(
+            stopped.load(Ordering::Acquire),
+            "idle timeout must cancel stalled upstream lane"
+        );
     }
 }

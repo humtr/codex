@@ -23,6 +23,7 @@ use axum::{
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 #[derive(Clone)]
 struct AppState {
@@ -33,6 +34,7 @@ struct AppState {
     threads: Arc<ResponseThreadMap>,
     catalog_path: Option<PathBuf>,
     live_models: LiveModelSet,
+    sse_idle: Duration,
 }
 
 #[cfg(test)]
@@ -52,6 +54,7 @@ pub fn build_router(
         viewer_slot,
         ResponseThreadMap::default(),
         None,
+        crate::stream::SSE_IDLE,
     )
 }
 
@@ -65,6 +68,7 @@ pub fn build_router_with_threads(
     viewer_slot: ViewerSlot,
     threads: ResponseThreadMap,
     catalog_path: Option<PathBuf>,
+    sse_idle: Duration,
 ) -> Router {
     let live_models =
         new_live_model_set(model_cfg.available.iter().cloned(), catalog_path.as_deref());
@@ -78,6 +82,7 @@ pub fn build_router_with_threads(
         threads: Arc::new(threads),
         catalog_path: catalog_path.clone(),
         live_models: Arc::clone(&live_models),
+        sse_idle,
     };
     let v1_router = Router::new()
         .route("/healthz", get(healthz))
@@ -144,6 +149,7 @@ async fn v1_responses(
         session_hint,
         turn_metadata,
         Some(&st.live_models),
+        st.sse_idle,
         body,
     )
     .await
