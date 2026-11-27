@@ -176,7 +176,7 @@ pub async fn handle_responses_with_metadata(
     let resp_id = format!("resp_{}", random_hex(8)?);
     let lane_id = resp_id.clone();
 
-    let mut encoder = ResponsesEncoder::new(resp_id.clone(), requested_model);
+    let mut encoder = ResponsesEncoder::new(resp_id.clone(), requested_model, !utility);
     encoder.input_tokens = estimate_tokens(&json!([body["input"], body["instructions"]]));
 
     if utility {
@@ -362,7 +362,7 @@ async fn dispatch_responses_turn(
         let mut assembly = TurnAssembly::default();
         assembly.reconcile_settled(&driver_res)?;
         cancel_guard.disarm();
-        let (_, final_resp) = encoder.finish(&mut assembly, &driver_res);
+        let (_, final_resp) = encoder.finish(&mut assembly, &driver_res)?;
         if let Some(plan) = &plan {
             plan.commit(
                 &threads,
@@ -417,7 +417,10 @@ async fn dispatch_responses_turn(
                         Some(event) => {
                             idle.as_mut().reset(tokio::time::Instant::now() + sse_idle);
                             assembly.apply_event(event);
-                            let frames = encoder.flush_ready(&mut assembly);
+                            let frames = match encoder.flush_ready(&mut assembly) {
+                                Ok(frames) => frames,
+                                Err(err) => break Err(err),
+                            };
                             if !frames.is_empty() && !send_frames(&tx, frames).await {
                                 cancel.cancel_now().await;
                                 return;
@@ -451,7 +454,7 @@ async fn dispatch_responses_turn(
                     return Err(err);
                 }
             }
-            let (frames, final_resp) = encoder.finish(&mut assembly, &settled);
+            let (frames, final_resp) = encoder.finish(&mut assembly, &settled)?;
             if let Some(plan) = &plan {
                 plan.commit(
                     &threads,
@@ -487,6 +490,7 @@ use axum::body::Body;
 mod tests {
     use super::*;
     use crate::cdp::{StreamEvent, StreamItemKind};
+    use crate::stream::ContentState;
     use crate::turn::{format_mcp_bridge_directive, TurnPlan, TurnStrategy};
     use std::collections::HashSet;
 
@@ -667,7 +671,7 @@ mod tests {
     #[test]
     fn stream_encoder_streams_append_only_reasoning_and_answer_with_usage() {
         let mut assembly = TurnAssembly::default();
-        let mut enc = ResponsesEncoder::new("resp_s1".into(), "gpt-6-2".into());
+        let mut enc = ResponsesEncoder::new("resp_s1".into(), "gpt-6-2".into(), true);
         enc.input_tokens = 20;
         let _ = enc.start();
 
@@ -678,7 +682,7 @@ mod tests {
             committed: false,
             streamable: true,
         });
-        let f1 = enc.flush_ready(&mut assembly);
+        let f1 = enc.flush_ready(&mut assembly).unwrap();
         assert!(f1
             .iter()
             .any(|f| f["type"] == "response.reasoning_summary_text.delta"));
@@ -690,7 +694,7 @@ mod tests {
             committed: true,
             streamable: true,
         });
-        let f2 = enc.flush_ready(&mut assembly);
+        let f2 = enc.flush_ready(&mut assembly).unwrap();
         assert!(f2
             .iter()
             .any(|f| f["type"] == "response.reasoning_summary_text.done"));
@@ -702,13 +706,98 @@ mod tests {
                 "usage": {"input_tokens": 100, "output_tokens": 25}
             }))
             .unwrap();
-        let (_, final_resp) = enc.finish(
-            &mut assembly,
-            &json!({"usage": {"input_tokens": 100, "output_tokens": 25}}),
-        );
+        let (_, final_resp) = enc
+            .finish(
+                &mut assembly,
+                &json!({"usage": {"input_tokens": 100, "output_tokens": 25}}),
+            )
+            .unwrap();
         assert_eq!(final_resp["usage"]["total_tokens"], 125);
         assert_eq!(final_resp["parallel_tool_calls"], false);
         assert_eq!(final_resp["output"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn presentation_deltas_match_all_settled_frames_and_json() {
+        let raw = "Start 한국어 ✅ <badge color=\"success\">Ready</badge> and `Vec<T>` end.";
+        let expected = crate::presentation::render_for_codex_tui(raw);
+        assert!(expected.contains("Ready"));
+        assert!(!expected.contains("<badge"));
+        let settled = json!({
+            "state": "settled",
+            "items": [{"id": "a", "kind": "answer", "text": raw}]
+        });
+        let mut enc = ResponsesEncoder::new("resp_projection".into(), "gpt-6-2".into(), true);
+        let mut assembly = TurnAssembly::default();
+        let mut frames = enc.start();
+        for (end, _) in raw.char_indices().skip(1) {
+            assembly.upsert_text(
+                "a".into(),
+                StreamItemKind::Answer,
+                raw[..end].to_owned(),
+                ContentState::Streaming,
+            );
+            frames.extend(enc.flush_ready(&mut assembly).unwrap());
+        }
+        assembly.reconcile_settled(&settled).unwrap();
+        let (tail, response) = enc.finish(&mut assembly, &settled).unwrap();
+        frames.extend(tail);
+        let delta: String = frames
+            .iter()
+            .filter(|f| f["type"] == "response.output_text.delta")
+            .map(|f| f["delta"].as_str().unwrap())
+            .collect();
+        assert_eq!(delta, expected);
+        for (i, frame) in frames.iter().enumerate() {
+            assert_eq!(frame["sequence_number"], i);
+            match frame["type"].as_str().unwrap() {
+                "response.output_text.done" => assert_eq!(frame["text"], expected),
+                "response.content_part.done" => assert_eq!(frame["part"]["text"], expected),
+                "response.output_item.done" => {
+                    assert_eq!(frame["item"]["content"][0]["text"], expected)
+                }
+                "response.completed" => assert_eq!(frame["response"], response),
+                _ => {}
+            }
+        }
+        for event in [
+            "response.output_text.done",
+            "response.content_part.done",
+            "response.output_item.done",
+            "response.completed",
+        ] {
+            assert_eq!(frames.iter().filter(|f| f["type"] == event).count(), 1);
+        }
+        assert_eq!(response["output"][0]["content"][0]["text"], expected);
+        let mut nonstream = TurnAssembly::default();
+        nonstream.reconcile_settled(&settled).unwrap();
+        let (_, nonstream_response) =
+            ResponsesEncoder::new("resp_projection".into(), "gpt-6-2".into(), true)
+                .finish(&mut nonstream, &settled)
+                .unwrap();
+        assert_eq!(response, nonstream_response);
+    }
+
+    #[test]
+    fn legacy_settlement_keeps_unpublished_strict_answer_suffix() {
+        let mut enc = ResponsesEncoder::new("resp_legacy".into(), "gpt-6-2".into(), true);
+        let mut assembly = TurnAssembly::default();
+        assembly.upsert_text(
+            "a".into(),
+            StreamItemKind::Answer,
+            "Start".into(),
+            ContentState::Streaming,
+        );
+        let frames = enc.flush_ready(&mut assembly).unwrap();
+        assert!(frames.iter().any(|f| f["delta"] == "Start"));
+        let settled = json!({"state": "settled", "assistant_text": "Start and finish."});
+        assembly.reconcile_settled(&settled).unwrap();
+        let (frames, response) = enc.finish(&mut assembly, &settled).unwrap();
+        assert!(frames.iter().any(|f| f["delta"] == " and finish."));
+        assert_eq!(
+            response["output"][0]["content"][0]["text"],
+            "Start and finish."
+        );
     }
 
     #[test]

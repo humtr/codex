@@ -159,8 +159,9 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
     SSE. For presentation, buffer only incomplete render units; subsequent
     ordinary prose must stream once ambiguity is resolved. A settled strict
     extension must retain every projected byte already emitted and add the
-    remaining suffix. Background utility output bypasses presentation and is
-    returned verbatim. SSE and JSON share the encoder; the committed Codex
+    remaining suffix. A projection inconsistency at settlement fails explicitly
+    instead of silently committing truncated output. Background utility text
+    bypasses presentation. SSE and JSON share the encoder; the committed Codex
     prefix uses exactly its emitted text, not a second projection. If a turn
     supplies only a
     user-visible summary with no answer, the same text is returned as the final

@@ -371,18 +371,26 @@ impl TurnAssembly {
                 .get("assistant_text")
                 .and_then(Value::as_str)
                 .unwrap_or("");
-            if !assistant_text.is_empty()
-                && !self
+            if !assistant_text.is_empty() {
+                let mut answers = self
                     .items
                     .iter()
-                    .any(|item| matches!(item.content, AssembledContent::Answer(_)))
-            {
-                self.upsert_text(
-                    "settled_answer".to_owned(),
-                    StreamItemKind::Answer,
-                    assistant_text.to_owned(),
-                    ContentState::Committed,
-                );
+                    .filter(|item| matches!(item.content, AssembledContent::Answer(_)));
+                let id = match (answers.next(), answers.next()) {
+                    (None, _) => Some("settled_answer".to_owned()),
+                    (Some(item), None) if item.state == ContentState::Streaming => {
+                        Some(item.id.clone())
+                    }
+                    _ => None,
+                };
+                if let Some(id) = id {
+                    self.upsert_text(
+                        id,
+                        StreamItemKind::Answer,
+                        assistant_text.to_owned(),
+                        ContentState::Committed,
+                    );
+                }
             }
         }
 
@@ -476,6 +484,7 @@ pub fn estimate_tokens(value: &Value) -> u64 {
 pub struct ResponsesEncoder {
     id: String,
     model: String,
+    project_presentation: bool,
     sequence: u64,
     completed_output: Vec<Value>,
     open: Option<OpenTextItem>,
@@ -484,10 +493,11 @@ pub struct ResponsesEncoder {
 }
 
 impl ResponsesEncoder {
-    pub fn new(id: String, model: String) -> Self {
+    pub fn new(id: String, model: String, project_presentation: bool) -> Self {
         Self {
             id,
             model,
+            project_presentation,
             sequence: 0,
             completed_output: vec![],
             open: None,
@@ -537,7 +547,7 @@ impl ResponsesEncoder {
         }
     }
 
-    pub fn flush_ready(&mut self, assembly: &mut TurnAssembly) -> Vec<Value> {
+    pub fn flush_ready(&mut self, assembly: &mut TurnAssembly) -> Result<Vec<Value>> {
         let mut frames = vec![];
         for item in &mut assembly.items {
             if item.emitted || item.state == ContentState::Mutable {
@@ -557,7 +567,7 @@ impl ResponsesEncoder {
                 AssembledContent::Answer(t) => (false, "final_answer", t),
             };
             let committed = item.state == ContentState::Committed;
-            let rendered = if reasoning {
+            let rendered = if reasoning || !self.project_presentation {
                 text.clone()
             } else if committed {
                 crate::presentation::render_for_codex_tui(text)
@@ -609,7 +619,10 @@ impl ResponsesEncoder {
                     open.text = rendered;
                 }
             } else if committed {
-                eprintln!("provider: rendered item revised; preserving emitted prefix");
+                return Err(ProviderError::internal(
+                    "chatgpt_output_prefix_inconsistent",
+                    "Settled output does not extend the published text prefix",
+                ));
             }
             if !committed {
                 break;
@@ -626,11 +639,15 @@ impl ResponsesEncoder {
                 self.close_open(&mut frames);
             }
         }
-        frames.into_iter().map(|v| self.stamp(v)).collect()
+        Ok(frames.into_iter().map(|v| self.stamp(v)).collect())
     }
 
-    pub fn finish(&mut self, assembly: &mut TurnAssembly, settled: &Value) -> (Vec<Value>, Value) {
-        let mut frames = self.flush_ready(assembly);
+    pub fn finish(
+        &mut self,
+        assembly: &mut TurnAssembly,
+        settled: &Value,
+    ) -> Result<(Vec<Value>, Value)> {
+        let mut frames = self.flush_ready(assembly)?;
         let mut closing = vec![];
         self.close_open(&mut closing);
         let usage = &settled["usage"];
@@ -664,7 +681,7 @@ impl ResponsesEncoder {
         let response = self.response("completed", &self.completed_output);
         closing.push(json!({"type": "response.completed", "response": response}));
         frames.extend(closing.into_iter().map(|v| self.stamp(v)));
-        (frames, response)
+        Ok((frames, response))
     }
 
     pub fn failed(&mut self, err: ProviderError) -> Value {

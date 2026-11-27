@@ -2065,6 +2065,132 @@ wire_api = "responses"
     }
 
     #[tokio::test]
+    async fn utility_projection_bypass_is_exact_for_title_memory_guardian() {
+        let raw = "  <badge color=\"success\">literal</badge> {metric.value}\n끝 ✅  ";
+        let driver = MockDriver::new(json!({
+            "state": "settled",
+            "chat_id": "conv-utility",
+            "items": [{"id": "a", "kind": "answer", "text": raw}],
+            "test_delay_ms": 0,
+            "test_snapshots": [
+                {"item_id":"a","kind":"answer","text":"  <badge", "committed":false,"streamable":true},
+                {"item_id":"a","kind":"answer","text":raw,"committed":true}
+            ]
+        }));
+        let threads = Arc::new(crate::responses::ResponseThreadMap::default());
+        for kind in ["title_gen", "memory", "guardian"] {
+            for stream in [true, false] {
+                let response = crate::responses::handle_responses_with_metadata(
+                    driver.clone(),
+                    &Default::default(),
+                    &Default::default(),
+                    &Default::default(),
+                    threads.clone(),
+                    Some("utility-fixture".into()),
+                    Some(json!({"request_kind":kind})),
+                    None,
+                    std::time::Duration::from_secs(30),
+                    json!({"input":"Utility fixture", "stream":stream}),
+                )
+                .await
+                .unwrap();
+                let bytes = to_bytes(response.into_body(), 65536).await.unwrap();
+                let output: Value = if stream {
+                    let sse = std::str::from_utf8(&bytes).unwrap();
+                    let events: Vec<Value> = sse
+                        .lines()
+                        .filter_map(|line| line.strip_prefix("data: "))
+                        .map(|line| serde_json::from_str(line).unwrap())
+                        .collect();
+                    let delta: String = events
+                        .iter()
+                        .filter(|ev| ev["type"] == "response.output_text.delta")
+                        .map(|ev| ev["delta"].as_str().unwrap())
+                        .collect();
+                    assert_eq!(delta, raw, "{kind}");
+                    events
+                        .iter()
+                        .find(|ev| ev["type"] == "response.completed")
+                        .unwrap()["response"]
+                        .clone()
+                } else {
+                    serde_json::from_slice(&bytes).unwrap()
+                };
+                assert_eq!(output["output"][0]["content"][0]["text"], raw, "{kind}");
+                let sent = driver.last_send.lock().unwrap().clone().unwrap();
+                assert!(sent["chat_id"].is_null());
+                assert_eq!(sent["temporary"], true);
+            }
+        }
+        assert!(threads.get("session:utility-fixture").is_none());
+    }
+
+    #[tokio::test]
+    async fn presentation_resume_accepts_exact_emitted_prefix() {
+        let raw = "Result: <badge color=\"success\">Ready</badge>";
+        let driver = MockDriver::new(json!({
+            "state":"settled", "chat_id":"conv-projected", "account_id":"acct-projected",
+            "remote_head":"head-projected", "assistant_text":raw,
+        }));
+        let threads = Arc::new(crate::responses::ResponseThreadMap::default());
+        let history = config::HistoryConfig {
+            project_id: Some("g-p-projected".into()),
+            ..Default::default()
+        };
+        let user = json!({"type":"message","role":"user","content":[{"type":"input_text","text":"Check"}]});
+        let first = crate::responses::handle_responses(
+            driver.clone(),
+            &Default::default(),
+            &history,
+            threads.clone(),
+            None,
+            None,
+            json!({"input":[user.clone()],"stream":true}),
+        )
+        .await
+        .unwrap();
+        let bytes = to_bytes(first.into_body(), 65536).await.unwrap();
+        let response = std::str::from_utf8(&bytes)
+            .unwrap()
+            .lines()
+            .filter_map(|line| line.strip_prefix("data: "))
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .find(|ev| ev["type"] == "response.completed")
+            .unwrap()["response"]
+            .clone();
+        let projected = response["output"][0]["content"][0]["text"]
+            .as_str()
+            .unwrap();
+        assert!(projected.contains("Ready") && !projected.contains("<badge"));
+        assert_ne!(projected, raw);
+        let mut input = vec![user];
+        input.extend(response["output"].as_array().unwrap().iter().cloned());
+        input.push(json!({"type":"message","role":"user","content":[{"type":"input_text","text":"Continue"}]}));
+        let _ = crate::responses::handle_responses(
+            driver.clone(),
+            &Default::default(),
+            &history,
+            threads,
+            None,
+            None,
+            json!({"previous_response_id":response["id"], "input":input,"stream":false}),
+        )
+        .await
+        .unwrap();
+        let sent = driver.last_send.lock().unwrap().clone().unwrap();
+        assert_eq!(sent["chat_id"], "conv-projected");
+        assert_eq!(sent["expected_account_id"], "acct-projected");
+        assert_eq!(sent["project_id"], "g-p-projected");
+        assert_eq!(
+            sent["native_candidate"]["parent_message_id"],
+            "head-projected"
+        );
+        let messages = sent["native_candidate"]["messages"].as_array().unwrap();
+        assert_eq!(messages.iter().filter(|m| m["role"] == "user").count(), 1);
+        assert_eq!(messages[0]["parts"][0], "Continue");
+    }
+
+    #[tokio::test]
     async fn responses_dedup_commentary_and_render_dil_equivalently_across_stream_and_json() {
         let dil_commentary = "## 저장소 상태\n\n<row align=\"center\" gap={2}>\n  <badge color=\"success\">정상</badge>\n  <text color=\"secondary\" size=\"sm\">실제 조회 기준</text>\n</row>";
         let dup_answer = format!(
