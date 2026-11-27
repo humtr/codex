@@ -59,7 +59,7 @@ pub fn build_static_tools() -> Vec<ToolDef> {
         ),
         ToolDef::new(
             "orch_work",
-            "Create or manage a durable Work. Use the current session for questions and steps it can finish itself. For edits, coordination, or persistent follow-up from ChatGPT, delegate the work and return promptly so the Front chat is free. For a fixed shell plan pass steps rather than opening a Lead. Select independent_review for multi-file, contract, state, permission or follow-up fixes. Multi-step instructions still need coordination in the current session. Use direct for a fixed sequence and do not create a separate Lead unless needed. Reuse repository projects with project_scope.",
+            "Create or manage a durable Work. Keep single-turn questions, quick checks, and direct @TermuxShell edits in the current session (Tier 0). Delegate via @TermuxOrch when work needs durability across disconnects/sessions (F1->Fn), long background execution, parallel/worktree workers, scheduled shell steps, or independent_review, then return promptly so the Front chat stays free. For a fixed shell plan pass steps (tier=direct) rather than opening a Lead. Select independent_review for multi-file, contract, state, permission or follow-up fixes. Reuse repository projects with project_scope.",
             json!({
                 "type": "object",
                 "properties": {
@@ -93,6 +93,7 @@ pub fn build_static_tools() -> Vec<ToolDef> {
                     "lead_kind": { "type": "string", "enum": ["chatgpt", "codex"] },
                     "lead_profile": { "type": "string", "minLength": 1, "maxLength": 64 },
                     "lead_model": { "type": "string", "minLength": 1, "maxLength": 128 },
+                    "lead_model_provider": { "type": "string", "minLength": 1, "maxLength": 128, "description": "Optional configured Codex model provider for a new Codex Lead" },
                     "lead_reasoning_effort": { "type": "string", "minLength": 1, "maxLength": 32 },
                     "lead_cwd": { "type": "string", "minLength": 1, "maxLength": 512 },
                     "lead_ref_id": { "type": "string", "minLength": 1, "maxLength": 128, "description": "Optional pre-created Lead chat_id or thread_id" },
@@ -700,6 +701,7 @@ impl OrchMcpHandler {
                 "lead_kind",
                 "lead_profile",
                 "lead_model",
+                "lead_model_provider",
                 "lead_reasoning_effort",
                 "lead_cwd",
                 "lead_ref_id",
@@ -763,6 +765,7 @@ impl OrchMcpHandler {
                 "lead_ref_id",
                 "lead_profile",
                 "lead_model",
+                "lead_model_provider",
                 "lead_cwd",
                 "lead_reasoning_effort",
             ]
@@ -1107,10 +1110,15 @@ impl OrchMcpHandler {
                 .save_work(work)
                 .map_err(|e| fail("ledger_write_failed", e.to_string()))?;
             let criteria = work.completion_criteria.join("\n- ");
+            let mcp_note = if kind == "chatgpt" {
+                " Use connected MCP tools (`@TermuxShell`, `@TermuxCodex`, `@TermuxChatGPT`, `@TermuxOrch`) in single-turn mode, avoid retired `@TermuxBridge`, and never target your own currently generating chat via `@TermuxChatGPT`."
+            } else {
+                ""
+            };
             let prompt = format!(
                 "[ORCH_DISPATCH {id}]\nYou are Lead [L{generation}] for durable Work `{}` (\"{}\").\n\
                  Goal: {}\nCompletion criteria:\n- {criteria}\n\n\
-                 Use the available owner tools to dispatch scoped Workers and Verifiers. Register them and arm \
+                 Use the available owner tools to dispatch scoped Workers and Verifiers (`backend`: `codex` | `chatgpt` | `shell`).{mcp_note} Register them and arm \
                  the Wait-Set with @TermuxOrch, then end your turn. Report milestones, blockers, and verified \
                  completion via orch_report. Include expected_lead_generation={generation} in Work mutations.",
                 work.work_id, work.title, work.goal
@@ -1123,7 +1131,8 @@ impl OrchMcpHandler {
                         obj.get("lead_cwd").and_then(Value::as_str),
                         &prompt,
                         lead.model.as_deref(),
-                        None,
+                        obj.get("lead_model_provider").and_then(Value::as_str),
+                        lead.reasoning_effort.as_deref(),
                         None,
                         |tid| {
                             if let Some(pending) = work.pending_lead.as_mut() {
@@ -1995,6 +2004,7 @@ impl OrchMcpHandler {
                 ));
             }
             let model = obj.get("model").and_then(Value::as_str);
+            let reasoning_effort = obj.get("reasoning_effort").and_then(Value::as_str);
             let result = if backend == "codex" {
                 self.owners
                     .codex_dispatch_turn(
@@ -2004,6 +2014,7 @@ impl OrchMcpHandler {
                         &text,
                         model,
                         obj.get("model_provider").and_then(Value::as_str),
+                        reasoning_effort,
                         obj.get("approval_policy").and_then(Value::as_str),
                         |tid| {
                             work.participants[position].ref_id = tid.to_owned();
@@ -2017,13 +2028,7 @@ impl OrchMcpHandler {
                     })
             } else {
                 self.owners
-                    .chatgpt_dispatch_participant(
-                        &work,
-                        id,
-                        &text,
-                        model,
-                        obj.get("reasoning_effort").and_then(Value::as_str),
-                    )
+                    .chatgpt_dispatch_participant(&work, id, &text, model, reasoning_effort)
                     .and_then(|receipt| {
                         if crate::rollover::rejected_before_send(&receipt) {
                             work.participants[position].state = "failed".to_owned();

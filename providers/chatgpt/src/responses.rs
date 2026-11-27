@@ -710,4 +710,20 @@ mod tests {
         assert_eq!(entry.native.unwrap().remote_head.as_deref(), Some("msg_1"));
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn default_model_config_avoids_hardcoded_versions_and_bridge_includes_orch() {
+        let cfg = ModelConfig::default();
+        assert_eq!(cfg.available, vec!["auto"]);
+        let guide = crate::turn::format_mcp_bridge_directive(
+            Some("/data/data/com.termux/files/home/prj/codex"),
+            &[],
+            &McpConfig::default(),
+        )
+        .unwrap();
+        assert!(guide.contains("TermuxShell"));
+        assert!(guide.contains("TermuxChatGPT"));
+        assert!(guide.contains("TermuxCodex"));
+        assert!(guide.contains("TermuxOrch"));
+    }
 }

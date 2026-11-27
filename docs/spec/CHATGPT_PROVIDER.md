@@ -71,7 +71,7 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
   turn** with **zero `local_function_names` / `local_function_signatures`**.
   Host execution and multi-step tool loops are performed server-side inside
   that single `/f/conversation` turn through registered ChatGPT remote MCP
-  connectors (`TermuxShell`, `TermuxCodex`, `TermuxChatGPT`, and future
+  connectors (`TermuxShell`, `TermuxCodex`, `TermuxChatGPT`, and
   `TermuxOrch`). The retired client-side `local_function_names` /
   `pending_calls` implementation is archived for developer reference in
   [providers/chatgpt/archive/local-tools](../../providers/chatgpt/archive/local-tools/README.md),
@@ -141,7 +141,7 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
     `x-codex-turn-metadata` `request_kind != "turn"` or `memory_consolidation`,
     or tool-less title/memory prompts) bypass session leasing, project pinning,
     and `response_threads.json` persistence, and map unknown non-ChatGPT utility
-    model slugs (such as `gpt-6-luna`) to an available ChatGPT slug so they
+    model slugs (such as Codex-only utility slugs) to an available ChatGPT slug so they
     never trigger `503 response_thread_busy` against the active user turn.
   - `cdp.rs` delivers structured `StreamEvent` items through a per-lane
     non-blocking `LaneMailbox` that coalesces rapid mutable snapshots per item

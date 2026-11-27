@@ -1094,7 +1094,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "requires an installed official Termux Codex 0.171.0"]
+    #[ignore = "requires an installed official Termux Codex CLI"]
     async fn native_codex_reads_provider_summary_and_answer_items() {
         use std::time::Duration;
         let root = std::env::temp_dir().join(format!(

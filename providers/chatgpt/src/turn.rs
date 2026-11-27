@@ -453,7 +453,7 @@ pub fn format_mcp_bridge_directive(
     } else if !active_connectors.is_empty() {
         active_connectors.iter().map(String::as_str).collect()
     } else {
-        vec!["TermuxShell", "TermuxChatGPT", "TermuxCodex"]
+        vec!["TermuxShell", "TermuxChatGPT", "TermuxCodex", "TermuxOrch"]
     };
     let mut lines = vec![
         "[Termux MCP Single-Turn Execution Mode]".to_owned(),
@@ -464,7 +464,7 @@ pub fn format_mcp_bridge_directive(
         lines.push(format!("- Workspace cwd: {dir}"));
     }
     lines.push(
-        "- Role split: use TermuxShell (`termux_shell` with required `call_id` and `command`) for host shell/file/git/build/test work; use TermuxChatGPT to read/manage other ChatGPT chats or projects (never target the currently generating chat); use TermuxCodex for independent Codex daemon threads."
+        "- Role split: use TermuxShell (`termux_shell` with required `call_id` and `command`) for direct single-turn host shell/file/git/build/test work; use TermuxChatGPT to read/manage other ChatGPT chats or projects (never target the currently generating chat); use TermuxCodex for independent Codex daemon threads; use TermuxOrch (`orch_work`/`orch_dispatch`/`orch_report`) for durable multi-step/background jobs, isolated Git worktrees, independent review, or `F1 -> Fn` mobile continuation."
             .to_owned(),
     );
     lines.push(

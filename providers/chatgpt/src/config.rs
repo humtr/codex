@@ -139,12 +139,7 @@ fn default_reasoning_effort() -> String {
 }
 
 fn default_models() -> Vec<String> {
-    vec![
-        "auto".to_owned(),
-        "gpt-5-6".to_owned(),
-        "gpt-5-6-instant".to_owned(),
-        "gpt-5-6-thinking".to_owned(),
-    ]
+    vec!["auto".to_owned()]
 }
 
 impl Default for ServerConfig {

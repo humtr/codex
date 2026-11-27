@@ -589,6 +589,7 @@ impl OwnerClient {
         prompt: &str,
         model: Option<&str>,
         model_provider: Option<&str>,
+        reasoning_effort: Option<&str>,
         approval_policy: Option<&str>,
         before_turn: impl FnOnce(&str) -> Result<(), String>,
     ) -> Result<(String, Option<String>), String> {
@@ -626,19 +627,14 @@ impl OwnerClient {
 
         before_turn(&tid)?;
 
-        let mut turn_params = json!({
-            "threadId": tid,
-            "input": [{ "type": "text", "text": prompt }]
-        });
-        if let Some(dir) = cwd {
-            turn_params["cwd"] = json!(dir);
-        }
-        if let Some(m) = model {
-            turn_params["model"] = json!(m);
-        }
-        if let Some(ap) = approval_policy {
-            turn_params["approvalPolicy"] = json!(ap);
-        }
+        let turn_params = build_codex_turn_start_params(
+            &tid,
+            cwd,
+            prompt,
+            model,
+            reasoning_effort,
+            approval_policy,
+        );
         let turn_res = client
             .call("turn/start", turn_params)
             .map_err(|e| e.to_string())?;
@@ -747,9 +743,53 @@ fn codex_turn_evidence(thread: &Value, turn_id: Option<&str>) -> (Option<String>
     (status, result)
 }
 
+fn build_codex_turn_start_params(
+    thread_id: &str,
+    cwd: Option<&str>,
+    prompt: &str,
+    model: Option<&str>,
+    reasoning_effort: Option<&str>,
+    approval_policy: Option<&str>,
+) -> Value {
+    let mut turn_params = json!({
+        "threadId": thread_id,
+        "input": [{ "type": "text", "text": prompt }]
+    });
+    if let Some(dir) = cwd {
+        turn_params["cwd"] = json!(dir);
+    }
+    if let Some(m) = model {
+        turn_params["model"] = json!(m);
+    }
+    if let Some(eff) = reasoning_effort.map(str::trim).filter(|s| !s.is_empty()) {
+        turn_params["effort"] = json!(eff);
+    }
+    if let Some(ap) = approval_policy {
+        turn_params["approvalPolicy"] = json!(ap);
+    }
+    turn_params
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn codex_turn_start_params_forward_effort_without_hardcoded_models() {
+        let params = build_codex_turn_start_params(
+            "thread-1",
+            Some("/tmp/work"),
+            "check status",
+            None,
+            Some("high"),
+            Some("never"),
+        );
+        assert_eq!(params["threadId"], "thread-1");
+        assert_eq!(params["cwd"], "/tmp/work");
+        assert_eq!(params["effort"], "high");
+        assert_eq!(params["approvalPolicy"], "never");
+        assert!(params.get("model").is_none());
+    }
 
     #[test]
     fn codex_turn_evidence_stays_attached_to_the_registered_turn() {

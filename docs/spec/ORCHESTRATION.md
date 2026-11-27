@@ -50,13 +50,16 @@ Direct ChatGPT recovery uses a 32 KiB checkpoint budget and at most one fresh-ch
 attempt for the same size rejection. Historical explicit turn thresholds retain
 their meaning:
 
-1. **Tier 0 — Pure Chat (zero overhead):** Ordinary interactive ChatGPT chat.
-   No `Work` created, no `R` involvement.
+1. **Tier 0 — Pure Chat & Single-Turn MCP (zero overhead):** Ordinary
+   interactive ChatGPT chat or single-turn `@TermuxShell` / `@TermuxChatGPT` /
+   `@TermuxCodex` execution that finishes within one turn. No `Work` created,
+   no `R` involvement.
 2. **Tier 1 — Direct Durable Task (`tier = "direct"`, no `L`):** A normal chat
-   (`F1`) dispatches one long-running Codex task or build/test and registers a
-   lightweight `Work` directly with `R`. If mobile disconnects, the task takes
-   20 minutes, or the user opens a new chat (`F2`) tomorrow, `R` preserves the
-   task, receipts, and result delivery to `F1`/`F2` without spawning a `Lead`.
+   (`F1`) dispatches one long-running Codex task, fixed shell plan (`steps`), or
+   build/test and registers a lightweight `Work` directly with `R`. If mobile
+   disconnects, the task takes 20 minutes, or the user opens a new chat (`F2`)
+   tomorrow, `R` preserves the task, receipts, and result delivery to `F1`/`F2`
+   without spawning a `Lead`.
 3. **Tier 2 — In-Place Escalation (`promote`):** A Tier 1 `direct` `Work` can
    be promoted in place into Tier 3 (`orchestrated`) by attaching `L1`, carrying
    over running workers, receipts, and history without restarting or duplicating
@@ -64,11 +67,12 @@ their meaning:
    New Works use `direct` when no tier or Lead configuration is supplied.
 4. **Tier 3 — Full Autonomous Orchestration (`tier = "orchestrated"`):** `F`
    creates a `Work` and spawns `L1` (`lead_kind = "codex" | "chatgpt"`, chosen
-   by workload: `codex` with `gpt-6-sol-wm xhigh` for multi-hour engineering
-   loops with native compaction; `chatgpt` for project-context/research/multi-tool
-   coordination). `L` dynamically spawns parallel `W`/`V` sessions, loops across
-   multiple rounds via `Wait-Set` wake-ups, and reports milestones, blockers,
-   and verified completion back to the latest bound `Front` (`F1..Fn`).
+   by workload: `codex` using its active configured model/profile for multi-hour
+   engineering loops with native compaction; `chatgpt` using MCP single-turn
+   connectors for project-context/research/multi-tool coordination). `L`
+   dynamically spawns parallel `W`/`V` sessions, loops across multiple rounds
+   via `Wait-Set` wake-ups, and reports milestones, blockers, and verified
+   completion back to the latest bound `Front` (`F1..Fn`).
 
 ---
 

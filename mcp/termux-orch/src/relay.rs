@@ -761,6 +761,8 @@ impl RelayEngine {
                 &prompt,
                 lead.as_ref().and_then(|lead| lead.model.as_deref()),
                 None,
+                lead.as_ref()
+                    .and_then(|lead| lead.reasoning_effort.as_deref()),
                 None,
                 |_| Ok(()),
             ) {
@@ -1238,6 +1240,7 @@ impl RelayEngine {
             &prompt,
             None,
             None,
+            None,
             Some("never"),
             |id| {
                 work.participants[position].ref_id = id.to_owned();
@@ -1649,7 +1652,7 @@ fn build_wakeup_prompt(
         ));
     }
     out.push_str(
-        "\nReview the results above. Continue the next round via `@TermuxCodex`/`@TermuxChatGPT`/`@TermuxShell` + `@TermuxOrch` (`orch_dispatch`), or report to the user via `orch_report`.",
+        "\nReview the results above. Continue the next round via `@TermuxCodex`/`@TermuxChatGPT`/`@TermuxShell` + `@TermuxOrch` (`orch_dispatch`), or report to the user via `orch_report` (never target your own currently generating chat via `@TermuxChatGPT` and avoid retired `@TermuxBridge`).",
     );
     out
 }
