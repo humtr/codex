@@ -43,6 +43,7 @@ fn contains_all(text: &str, expected: &[&str]) -> bool {
     expected.iter().all(|part| text.contains(part))
 }
 
+#[cfg_attr(test, test)]
 fn main() {
     let mut results = Vec::new();
 

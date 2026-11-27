@@ -739,8 +739,9 @@ without resurrecting Native-only features or marking the old milestone closed.
 
 ## 11. Deferred Codex presentation improvements
 
-**Status:** Phase 1 preparation selected and rebased on 2026-11-27.
-The user requested plan correction and preparation, not a live deployment.
+**Status:** Phase 1 isolated source candidate implemented and locally tested
+on 2026-11-27; independent review and authenticated/physical qualification
+remain open. This is not a live deployment.
 `HANDOFF.md` is the single active execution checklist. The existing
 presentation regression boundary remains mandatory during all Provider work;
 the retired Native-return plan is not a reason to postpone isolated rendering
@@ -922,9 +923,10 @@ rustc --edition=2021 providers/chatgpt/tests/fixtures/presentation_preflight.rs 
 "$d/oracle"
 ```
 
-The last command must return 0 for the qualified candidate (18/18, no skips);
-it returned 1 on the current baseline. Do not add the known-failing fixture
-as an automatically executed Cargo gate before the implementation fixes it.
+The last command must return 0 for the qualified candidate (18/18, no skips).
+The preparation baseline returned 1. The isolated candidate now passes the
+same 18 expectations and the additional adversarial oracle; both are wired
+into the Cargo test boundary. See `HANDOFF.md` for evidence and the open gates.
 Then run the existing Provider CI gates:
 
 ```sh

@@ -8,6 +8,7 @@ fn all(text: &str, required: &[&str]) -> bool {
     required.iter().all(|value| text.contains(value))
 }
 
+#[cfg_attr(test, test)]
 fn main() {
     let cases = [
         ("selector", r#"<segmented-control options={[{"label":"summary","value":"s"},{"label":"detail","value":"d"}]} value={view} onChange={setView}/>"#),
