@@ -1,4 +1,4 @@
-# Stage 2 Completed Milestones and Retired Work Order (2026-11-22 – 2026-11-24)
+# Stage 2 Completed Milestones and Retired Work Order (2026-11-22 – 2026-11-27)
 
 Historical record of the completed Stage 2 slice execution on `main`. The
 original work order is preserved in Git with `git show a5f50173:HANDOFF.md`.
@@ -32,6 +32,18 @@ for the product contract, and [ROADMAP.md](../ROADMAP.md) for open verification.
   relay restart, and Stop-hook wake-up. Natural context exhaustion and a
   continuous Shell run longer than ten minutes remain open.
   [Slice 7B evidence](../../CURRENT.md#2026-11-23--stage-2-slice-7b-resilience-on-android-api-37-termux)
+
+## 2026-11-27 — Phase 1 presentation and Orch verdict transport closeout
+
+The exact integrated source `71078da16327c66e0708fcb8943e939c64f9243a`
+contains the independently reviewed Provider Phase 1 and Orch verdict
+transport repair. Both signed generations were activated after user
+authorization; the original Work closed with current-subject V5/V6 PASS.
+The retired Phase 1 work order remains available via
+`git show 71078da1:HANDOFF.md`. See [CURRENT.md](../../CURRENT.md) for
+the release/activation and live CLI receipts, and [ROADMAP.md](../ROADMAP.md)
+for remaining physical UI, rollback and Phase 2 gates. Earlier Native
+qualification failures remain historical, not retroactively resolved.
 
 ## R-1 Signed Stage 2 releases
 

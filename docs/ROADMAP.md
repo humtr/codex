@@ -18,23 +18,24 @@
 The 2026-11-25 user decision placed structured Native return ahead of
 presentation work. On 2026-11-27 the Provider changed to MCP Single-Turn,
 retired the local-functions return path and published/activated generation
-`0.1.0-5a865216`. The user then requested presentation plan correction and
-implementation preparation. This selects §11 preparation as the next work,
-not a claim that the old Native qualification matrix passed.
+`0.1.0-5a865216`. The user then requested presentation plan correction, implementation and
+signed production rollout. Phase 1 and the separate Orch verdict repair
+are now active at `0.1.0-71078da1`; this does not qualify the old Native
+matrix.
 
 | Work | Admission / status |
 | --- | --- |
 | [Structured context and retired Native-return milestone](#10-chatgpt-provider-native-tool-return-and-structured-context) | Superseded execution plan; retain its receipts and the open continuity, migration, approval-boundary and recovery gates. The current MCP route is authoritative; do not restore retired local tools to satisfy historical tests. |
-| [Codex presentation improvements](#11-deferred-codex-presentation-improvements) | **Phase 1 preparation selected (2026-11-27).** Current-source baseline and regression oracle prepared; candidate implementation is the next step. Isolated preparation/source qualification need not wait for obsolete Native-only gates. |
+| [Codex presentation improvements](#11-deferred-codex-presentation-improvements) | **Phase 1 scoped implementation and signed rollout completed (2026-11-27).** Physical UI and Phase 2 remain open. Preserve the regression gates and do not reopen obsolete Native-only execution paths. |
 | [Codex `<oai-mem-citation>` leak & cross-entrypoint memory boundary](#12-codex-oai-mem-citation-leak-and-cross-entrypoint-memory-boundary) | **Mitigated via profile policy (2026-11-27).** `~/.codex/chatgpt.config.toml` now sets `[features] memories = false` (ChatGPT/Project memory is single authority) and `stream_idle_timeout_ms = 660000`; optional `turn.rs` single-gate guard retained only if `memories = true` is later desired. |
 
-`HANDOFF.md` is the active work order; the earlier work order remains available
-verbatim in Git at `3f12f956:HANDOFF.md`. No previously unproven gate is promoted
-to PASS. Preserve unresolved receipts and settle equivalent active-route risks
-before accepting a release/activation that crosses them. This preparation does
-not authorize live service switching, new inference on an operating account,
-publication, or Phase 2. Do not expand the presentation change into an executor
-or transport redesign.
+The completed Phase 1 work order is retired and preserved verbatim in Git
+at `71078da1:HANDOFF.md`; the earlier Native work order remains at
+`3f12f956:HANDOFF.md`. No previously unproven gate is promoted to PASS.
+Preserve unresolved receipts and settle equivalent active-route risks before
+accepting a release/activation that crosses them. The later user authorization
+covered the two targeted signed components, not Phase 2 or unrelated runtime
+changes. Do not expand presentation into an executor or transport redesign.
 
 ---
 
@@ -739,24 +740,25 @@ without resurrecting Native-only features or marking the old milestone closed.
 
 ## 11. Deferred Codex presentation improvements
 
-**Status:** Phase 1 isolated source candidate implemented, independently
-reviewed, and corrected on 2026-11-27; final independent review and
-authenticated/physical qualification remain open. This is not a live deployment.
-`HANDOFF.md` is the single active execution checklist. The existing
-presentation regression boundary remains mandatory during all Provider work;
-the retired Native-return plan is not a reason to postpone isolated rendering
-work. The unresolved active-route acceptance risks in §10 remain open.
+**Status:** Phase 1 scoped implementation, synthetic qualification, signed
+release/activation, authenticated official no-daemon CLI/resume and final
+independent review completed on 2026-11-27 at `71078da1`. The previous
+execution checklist is preserved at `71078da1:HANDOFF.md`.
+[CURRENT.md](../CURRENT.md) records exact live receipts. Physical screen
+reconstruction, native clipboard, natural interactive TUI exit and actual
+rollback execution remain unqualified. Phase 2 and §10 risks remain open.
+The presentation regression boundary remains mandatory during Provider work.
 
 Original audit (historical): `$PREFIX/tmp/codex-tui-audit.8FJOHh/final-plan-preflight/IMPLEMENTATION_PLAN.md`.
 Use its pinned 0.171.0 source and PTY output only as historical evidence.
 
-### Codex presentation adapter — approval-ready work order
+### Codex presentation adapter — historical Phase 1 work order
 
 Preparation baseline: initial preparation at `3f12f9567dc84bcd30a93e88e1ab15fef902bf81`,
 refreshed on `main` at `e8fa37af`; installed official Codex `0.172.0`, selected
 upstream `releases/0.172.0-faf17b`; public tag `rust-v0.172.0` peeled to
 `3d86e43b075adeba2193ec5c22ac92f55afd82e6` (read-only ls-remote;
-source feature inspection for this version remains open).
+subsequently inspected for the Phase 1 source qualification).
 Provider selected/running at `0.1.0-368a1e0d` (`sequence=53`), `termux-shell-mcp`
 at `0.1.0-eb19e206` (`sequence=16`), Orch at `0.1.0-5a865216` (`sequence=25`);
 AppHost selected `26.1120.50957`. Recheck identities when beginning implementation.
@@ -773,7 +775,7 @@ local-tools execution path or introduce a second encoder or transcript store.
 
 #### Scope and ownership
 
-Phase 1 changes the standalone providers/chatgpt component only, plus relevant docs and qualification tests. Official Codex source, ELF adaptations, Wrapper, cdx, MCPs, real accounts, installed binaries and running services stay unchanged. Use official Markdown, tables, math, supported Mermaid, links and existing typed image/input capabilities only through their genuine owners. Do not synthesize tool calls, approvals, UI actions or protocol fields. AppHost and upstream Codex remain the conversation authorities. No shadow conversation DB, second executor, prompt coercion, arbitrary script evaluation, network retrieval of missing presentation bindings, or undisclosed data fabrication. Work on authorized, user-visible input only; never access private UI internals or credentials.
+Phase 1 source work changes the standalone providers/chatgpt component only, plus relevant docs and qualification tests. The isolated source stage preserved official Codex source, ELF adaptations, Wrapper, cdx, MCPs, accounts, installed binaries and running services. The later, separately authorized rollout activated only the signed Provider and the independently repaired Orch component; the upstream/Wrapper route was retained. Use official Markdown, tables, math, supported Mermaid, links and existing typed image/input capabilities only through their genuine owners. Do not synthesize tool calls, approvals, UI actions or protocol fields. AppHost and upstream Codex remain the conversation authorities. No shadow conversation DB, second executor, prompt coercion, arbitrary script evaluation, network retrieval of missing presentation bindings, or undisclosed data fabrication. Work on authorized, user-visible input only; never access private UI internals or credentials.
 
 #### Phase 1 — implementation order
 
@@ -893,9 +895,9 @@ applicable README; CURRENT records only verified observations; ROADMAP
 preserves deferred Phase 2 and open §10 gates. Retire HANDOFF after actual
 closeout. Keep candidate source/fixtures coherent and no unrelated configs.
 Existing chatgpt-provider.yml packages Android; source/candidate qualification
-comes before signed publication/readback/activation. No Wrapper/runtime
-release or replacement needed in Phase 1. Publication, service switching
-and rollback are separate gates; do not imply authorization from preparation.
+comes before signed publication/readback/activation. No new Wrapper or official upstream
+release was required for Phase 1. Publication and targeted service switching
+were separately authorized and verified; actual rollback execution remains open.
 
 #### Phase 2 — separate authorization
 
@@ -907,10 +909,10 @@ and rollback are separate gates; do not imply authorization from preparation.
 
 Historical audit root: `$PREFIX/tmp/codex-tui-audit.8FJOHh/` (0.171.0 public
 source, probe_tui.py, probe_narrow.py, PTY outputs and original plan).
-Current preflight root: `$PREFIX/tmp/tui-presentation-prep.K8eknh/` (synthetic
+Historical preflight root: `$PREFIX/tmp/tui-presentation-prep.K8eknh/` (synthetic
 inputs only, source SHA, unit.log, baseline-regressions.txt, oracle.log).
 The repository fixture is the reusable acceptance input, not the temp path.
-Current baseline renderer SHA-256:
+Historical baseline renderer SHA-256:
 `2781dc1423017af131de543dac39a712c61f914072048a2066ed28ca4f141fba`.
 Run from repository root in a private disposable output directory:
 
@@ -926,7 +928,7 @@ rustc --edition=2021 providers/chatgpt/tests/fixtures/presentation_preflight.rs 
 The last command must return 0 for the qualified candidate (18/18, no skips).
 The preparation baseline returned 1. The isolated candidate now passes the
 same 18 expectations and the additional adversarial oracle; both are wired
-into the Cargo test boundary. See `HANDOFF.md` for evidence and the open gates.
+into the Cargo test boundary. See [CURRENT.md](../CURRENT.md) for release evidence and the remaining gates.
 Then run the existing Provider CI gates:
 
 ```sh
@@ -941,9 +943,10 @@ python3 .github/scripts/check_doc_links.py
 
 Source qualification, synthetic integration, actual installed TUI, actual
 candidate authenticated E2E, Android package, publication, activation and
-physical UI remain distinct. Preparation ran only standalone renderer
-tests/oracle and read-only identity checks; it did not change product code,
-run a new live model turn, build a release candidate or qualify a physical UI.
+physical UI remain distinct. The later signed rollout and actual authenticated
+no-daemon CLI/resume passed; synthetic managed-daemon PTY markers were
+observed separately. Neither establishes physical UI or natural interactive
+exit qualification.
 
 ---
 

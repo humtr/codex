@@ -30,10 +30,13 @@ qualification receipts have not been independently refreshed in this preflight.
 **Targeted refresh (2026-11-27):** the table above retains the earlier
 2026-11-25 snapshot for components not refreshed here. The selected upstream
 is now `releases/0.172.0-faf17b` (`codex-cli 0.172.0`). Signed live generations
-now active include Provider `0.1.0-7423a6dc` (`sequence=56`, PID `11531`),
-`termux-orch` `0.1.0-7423a6dc` (`sequence=27`, relay PID `11534`, tunnel PID
-`11533`), and `termux-shell-mcp` `0.1.0-eb19e206` (`sequence=16`, PID `29393`);
-actual executable SHA-256 values match the signed rollout records below.
+now active include Provider `0.1.0-71078da1` (`sequence=58`, PID `12899`)
+and `termux-orch` `0.1.0-71078da1` (`sequence=29`, relay PID `12477`,
+tunnel PID `12483`, MCP child PID `12498`). Both retain
+`0.1.0-7423a6dc` as previous. The selected Shell MCP is still
+`0.1.0-eb19e206` (`sequence=16`); unrelated services were not restarted.
+The Wrapper remains the signed sequence-160 binary at `612d2261`.
+Actual target executable SHA-256 values match the signed rollout records below.
 AppHost selected `26.1120.50957`; Provider health/status reports `ok=true`,
 `host_running=true`, `auth_state=authenticated`, and `completion_ready=true`.
 The earlier local E01/Thin Option B activation is historical, not the active
@@ -41,13 +44,13 @@ route. This refresh did not independently requalify unmodified components.
 
 ### Unverified / Remaining Boundaries
 
-- **Provider presentation Phase 1 preparation (2026-11-27).** The current
-  MCP Single-Turn baseline was rebased for presentation work. Renderer unit
-  tests 4/4 passed; the independent 18-case oracle returned exit 1 (2/18
-  passed), confirming unresolved semantic and incremental display defects.
-  No product source change or live candidate qualification. See
+- **Provider presentation Phase 1 (2026-11-27).** The signed Phase 1
+  implementation is active and the scoped Work is completed after independent
+  verification. Physical screen reconstruction, native clipboard, natural
+  interactive TUI exit, and an actual rollback switch remain unqualified.
+  Phase 2 remains a separate authorization. See
   [ROADMAP §11](docs/ROADMAP.md#11-deferred-codex-presentation-improvements)
-  and `HANDOFF.md`.
+  and the release receipts below.
 - **Retired Native-return transition / active MCP continuity.** Old
   pending-call migration and uncertain-effect reconciliation, remote MCP
   approval boundary, latest CLI/TUI/app-server and physical UI qualification
@@ -81,6 +84,58 @@ route. This refresh did not independently requalify unmodified components.
 ---
 
 ## Recent Verified Evidence (Newest-First)
+
+### 2026-11-27 — Signed Phase 1 presentation and Orch verdict repair
+
+- **Exact source:** Phase 1 candidate `265f81eeb43a3351fde3f5ee0c1a4020196f782d`,
+  Orch repair `e69df028a8b0c1bbe8b6c9536fc2dbdeb68cc239`, integrated release
+  `71078da16327c66e0708fcb8943e939c64f9243a`. The integrated Provider tree
+  is identical to the independently reviewed candidate. The first Orch review
+  exposed shared synthetic notification timing interference; isolating the
+  fixture ledger and receipt namespace retained all assertions and passed
+  independent corrective review under both umasks.
+- **CI and publication:** [Wrapper](https://github.com/humtr/codex/actions/runs/45965481318),
+  [Orch](https://github.com/humtr/codex/actions/runs/45965481389),
+  [Provider](https://github.com/humtr/codex/actions/runs/45965481203),
+  [signed Orch release](https://github.com/humtr/codex/actions/runs/45965527021),
+  and [signed Provider release](https://github.com/humtr/codex/actions/runs/45965532694)
+  all passed against the exact release SHA. Downloaded manifests, Ed25519
+  signatures, canonical tags, archives and inner binary checksums verified.
+
+  | Active target generation | Sequence | Executable SHA-256 | Live process |
+  | --- | ---: | --- | --- |
+  | `termux-orch 0.1.0-71078da1` | 29 | `fd4b7186c5a8d1d87122e9421b61636e89e20c4cc02524510e33bab97c388f05` | relay 12477; MCP 12498 (tunnel 12483) |
+  | `chatgpt-provider 0.1.0-71078da1` | 58 | `7538d032390753f99935e8cc3472c69a7e8456c9cbd1853bb3fca18c6ceb95bd` | 12899 |
+
+- **Activation:** The signed installer with target components, `--skip-upstream`
+  and `--no-setup` staged both generations. The supervisor required an
+  explicit idle check before the authorized coordinated switch. Both
+  running executable hashes match the signed archives; previous pointers
+  select `0.1.0-7423a6dc`. All four MCP tunnels are ready; relay health and
+  `codex doctor` are healthy. Wrapper and upstream activation-state bytes,
+  the ChatGPT profile, and unrelated service PIDs were unchanged.
+- **Qualification:** Exact candidate gates 12/12 exit 0; original standalone
+  oracle 18/18; adversarial oracle 23/23; Rust 58+17+17 under each umask
+  (one ignored main test), JavaScript 17/17, host 8/8. Official 0.172.0
+  loopback Native regression 1/1; synthetic managed-daemon PTYs at four
+  widths (100/80/48/32) reached completion markers. The actual signed
+  Provider and official `--no-daemon` CLI passed two authenticated
+  `gpt-6-2` xhigh turns in a disposable Codex home, including same-thread
+  resume, badge projection, table/code preservation and raw remote readback
+  with exactly two user and two assistant messages.
+- **Durable closeout:** `work_78a0bb522ddfa34b` is `completed` (ledger
+  readback seq54). V3/V4 incomplete reviews retained their inconclusive
+  verdicts and evidence; V5/V6 independently verified the missing release,
+  live, and regression boundaries and recorded PASS on the same current
+  subject. No participant replay or manual ledger rewrite. Final evidence
+  root `$PREFIX/tmp/phase1-orch-release.blYrsd`, including
+  `ci-final.json`, `verify-release-local.log`, activation receipts and
+  `live-native/`. The old active handoff is preserved in Git at
+  `71078da1:HANDOFF.md`.
+- **Not qualified:** Physical screen reconstruction, native clipboard,
+  natural interactive TUI exit, actual rollback execution, and Phase 2.
+  The authenticated no-daemon CLI proof is not an authenticated default-daemon
+  TUI proof. The synthetic PTY completion markers do not qualify physical UI.
 
 ### 2026-11-27 — All-the-way MCP single-turn `chatgpt-provider` refactoring, `local-tools` archival, and live 3-MCP + Codex CLI verification
 
@@ -199,7 +254,7 @@ and the CLI exited 1. Readback of the original chat found that its head
 advanced with the same two original Codex user-role inputs. The Provider
 retains the original dispatch intent and one pending call. Result acceptance
 and remote settlement remain unresolved. The command and result were not
-replayed. See `HANDOFF.md` for evidence and the unapplied source changes.
+replayed. See the historical `3f12f956:HANDOFF.md` for evidence and the unapplied source changes.
 
 ### 2026-11-25 — E01 proof binary active on port 4319
 
