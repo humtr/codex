@@ -444,52 +444,98 @@
     return s && s.length <= 64 ? s : null;
   }
 
-  async function apiFetch(path, options = {}, timeoutMs = 15000) {
-    if (isElectronAppOrigin()) {
-      return appHostClient.fetch(path, options, timeoutMs);
-    }
+  let retryAfterUntil = 0;
+  const DEFAULT_429_COOLDOWN_SECS = 60;
 
-    const apiBase =
-      location && location.protocol === "https:"
-        ? "/backend-api"
-        : "https://chatgpt.com/backend-api";
-    const controller = typeof AbortController === "function" ? new AbortController() : null;
-    const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
-    try {
-      const resp = await fetch(`${apiBase}${path}`, {
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          ...(options.headers || {}),
-        },
-        signal: controller ? controller.signal : undefined,
-        ...options,
-      });
-      const text = await resp.text();
-      let json = null;
-      try {
-        json = text ? JSON.parse(text) : null;
-      } catch (_) {
-        json = null;
-      }
-      const retry_after = extractRetryAfter(resp.headers);
-      return {
-        ok: resp.ok,
-        status: resp.status,
-        json,
-        text: truncate(text, 4096),
-        ...(retry_after ? { retry_after } : {}),
-      };
-    } catch (err) {
+  function remainingRetryAfterSecs() {
+    if (Date.now() >= retryAfterUntil) return 0;
+    return Math.max(1, Math.ceil((retryAfterUntil - Date.now()) / 1000));
+  }
+
+  function noteRetryAfter(source, isRateLimited = false) {
+    const retryAfter = extractRetryAfter(source);
+    if (retryAfter) {
+      const deadline = /^\d+$/.test(retryAfter)
+        ? Date.now() + Number(retryAfter) * 1000
+        : Date.parse(retryAfter);
+      if (Number.isFinite(deadline)) retryAfterUntil = Math.max(retryAfterUntil, deadline);
+      return retryAfter;
+    }
+    if (isRateLimited) {
+      const deadline = Date.now() + DEFAULT_429_COOLDOWN_SECS * 1000;
+      retryAfterUntil = Math.max(retryAfterUntil, deadline);
+      return String(DEFAULT_429_COOLDOWN_SECS);
+    }
+    return null;
+  }
+
+  async function apiFetch(path, options = {}, timeoutMs = 15000) {
+    // Enforce global 429 cooldown for all backend-api traffic (except direct /me diagnostic probe)
+    // so read/observe/list loops never hammer upstream while rate-limited.
+    if (path !== "/me" && Date.now() < retryAfterUntil) {
+      const rem = String(remainingRetryAfterSecs());
       return {
         ok: false,
-        status: 0,
+        status: 429,
+        error: "backend_http_429",
         json: null,
-        text: truncate(String(err && err.message ? err.message : err), 512),
+        text: "Retry-After cooldown",
+        retry_after: rem,
       };
-    } finally {
-      if (timer) clearTimeout(timer);
     }
+
+    let result;
+    if (isElectronAppOrigin()) {
+      result = await appHostClient.fetch(path, options, timeoutMs);
+    } else {
+      const apiBase =
+        location && location.protocol === "https:"
+          ? "/backend-api"
+          : "https://chatgpt.com/backend-api";
+      const controller = typeof AbortController === "function" ? new AbortController() : null;
+      const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+      try {
+        const resp = await fetch(`${apiBase}${path}`, {
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            ...(options.headers || {}),
+          },
+          signal: controller ? controller.signal : undefined,
+          ...options,
+        });
+        const text = await resp.text();
+        let json = null;
+        try {
+          json = text ? JSON.parse(text) : null;
+        } catch (_) {
+          json = null;
+        }
+        const retry_after = extractRetryAfter(resp.headers);
+        result = {
+          ok: resp.ok,
+          status: resp.status,
+          json,
+          text: truncate(text, 4096),
+          ...(retry_after ? { retry_after } : {}),
+        };
+      } catch (err) {
+        result = {
+          ok: false,
+          status: 0,
+          json: null,
+          text: truncate(String(err && err.message ? err.message : err), 512),
+        };
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    }
+
+    if (result && result.status === 429) {
+      const ra = noteRetryAfter(result, true);
+      if (ra && !result.retry_after) result.retry_after = ra;
+    }
+    return result;
   }
 
   // Dynamically discover the app's React Fiber state scope (zero minified symbol names).
@@ -981,6 +1027,8 @@
     const liveTurns = generatingTurns();
     const primaryTurn = liveTurns.length > 0 ? liveTurns[liveTurns.length - 1] : lastTurn;
 
+    const activeRetryAfter = retryAfter || (remainingRetryAfterSecs() > 0 ? String(remainingRetryAfterSecs()) : null);
+
     return {
       state: "ok",
       transport: isElectronAppOrigin() ? "app_host_http_fetch" : "same_origin_fetch",
@@ -1006,7 +1054,7 @@
       })),
       models,
       ...(backendError ? { backend_error: backendError } : {}),
-      ...(retryAfter ? { retry_after: retryAfter } : {}),
+      ...(activeRetryAfter ? { retry_after: activeRetryAfter } : {}),
     };
   }
 
@@ -1045,7 +1093,12 @@
     }
     const res = await apiFetch(`/conversation/${encodeURIComponent(chatId)}`);
     if (!res.ok || !res.json) {
-      return { state: "error", error: res.error || `backend_http_${res.status}`, detail: res.text };
+      return {
+        state: "error",
+        error: res.error || `backend_http_${res.status}`,
+        detail: res.text,
+        ...(res.retry_after ? { retry_after: res.retry_after } : {}),
+      };
     }
     let messages = extractLinearMessages(res.json);
     const userTurnCount = messages.filter((message) => message.role === "user").length;
@@ -1222,6 +1275,17 @@
       { method: "GET" },
       8000
     );
+    if (ssRes.status === 429) {
+      return {
+        state: "error",
+        ...(matchedTurn ? { lane_id: matchedTurn.laneId } : {}),
+        error: "backend_http_429",
+        detail: ssRes.text || "Too many requests",
+        ...(ssRes.retry_after ? { retry_after: ssRes.retry_after } : {}),
+        chat_id: chatId,
+        generating: false,
+      };
+    }
     if (ssRes.ok && ssRes.json && typeof ssRes.json.status === "string") {
       remoteStreamStatus = ssRes.json.status;
       if (remoteStreamStatus === "IS_STREAMING") {
@@ -1238,6 +1302,17 @@
     }
 
     const rd = await readChat({ chat_id: chatId, limit: 10 });
+    if (rd.state === "error" && rd.error === "backend_http_429") {
+      return {
+        state: "error",
+        ...(matchedTurn ? { lane_id: matchedTurn.laneId } : {}),
+        error: "backend_http_429",
+        detail: rd.detail || "Too many requests",
+        ...(rd.retry_after ? { retry_after: rd.retry_after } : {}),
+        chat_id: chatId,
+        generating: false,
+      };
+    }
     if (rd.state === "ok" && Array.isArray(rd.messages)) {
       const lastA = [...rd.messages].reverse().find((m) => m.role === "assistant");
       return {
@@ -1384,17 +1459,6 @@
       }
     }
     return messages;
-  }
-
-  let retryAfterUntil = 0;
-  function noteRetryAfter(source) {
-    const retryAfter = extractRetryAfter(source);
-    if (retryAfter) {
-      const deadline = /^\d+$/.test(retryAfter)
-        ? Date.now() + Number(retryAfter) * 1000 : Date.parse(retryAfter);
-      if (Number.isFinite(deadline)) retryAfterUntil = Math.max(retryAfterUntil, deadline);
-    }
-    return retryAfter;
   }
 
   async function sendMessage(opts = {}) {
@@ -2068,7 +2132,8 @@
           if (!turn.stopped) {
             const code = err?.errorCode || (err?.responseStatus ? `backend_http_${err.responseStatus}` : "completion_stream_error");
             const detail = err?.error || err?.message || String(err || "completion stream failed");
-            const retry_after = noteRetryAfter(err);
+            const is429 = err?.responseStatus === 429 || String(code) === "backend_http_429";
+            const retry_after = noteRetryAfter(err, is429);
             turn.error = {
               code: String(code),
               detail: truncate(String(detail), 512),
@@ -2085,9 +2150,11 @@
       }
     } catch (err) {
       turn.generating = false;
-      const retry_after = noteRetryAfter(err);
+      const code = err?.errorCode || (err?.responseStatus ? `backend_http_${err.responseStatus}` : "completion_dispatch_failed");
+      const is429 = err?.responseStatus === 429 || String(code) === "backend_http_429";
+      const retry_after = noteRetryAfter(err, is429);
       turn.error = {
-        code: err?.errorCode || (err?.responseStatus ? `backend_http_${err.responseStatus}` : "completion_dispatch_failed"),
+        code: String(code),
         detail: truncate(String(err && err.message ? err.message : err), 512),
         ...(retry_after ? { retry_after } : {}),
       };

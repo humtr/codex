@@ -995,4 +995,301 @@ mod tests {
         let _ = srv.join();
         let _ = fs::remove_dir_all(&root);
     }
+
+    #[test]
+    fn relay_throttles_rollover_handles_429_cleanly_and_enforces_chatgpt_concurrency_cap() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let root = std::env::temp_dir().join(format!("orch-rl-{}", ledger::generate_id("test")));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let tok_path = root.join("control.token");
+        ledger::write_atomic_private(&tok_path, b"tok-rl-test-1234567890abcdef1234567890\n")
+            .unwrap();
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_bg = Arc::clone(&stop);
+        let read_calls = Arc::new(AtomicUsize::new(0));
+        let read_calls_bg = Arc::clone(&read_calls);
+        let send_429 = Arc::new(AtomicBool::new(false));
+        let send_429_bg = Arc::clone(&send_429);
+        let observe_429 = Arc::new(AtomicBool::new(false));
+        let observe_429_bg = Arc::clone(&observe_429);
+
+        let srv = std::thread::spawn(move || {
+            use std::io::{Read, Write};
+            while !stop_bg.load(Ordering::Acquire) {
+                let Ok((mut stream, _)) = listener.accept() else {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                    continue;
+                };
+                let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(2)));
+                let mut buf = vec![0u8; 16384];
+                let n = stream.read(&mut buf).unwrap_or(0);
+                let req = String::from_utf8_lossy(&buf[..n]);
+                let first = req.lines().next().unwrap_or("");
+                let mut parts = first.split_whitespace();
+                let method = parts.next().unwrap_or("");
+                let path = parts.next().unwrap_or("");
+                let body = match (method, path) {
+                    ("GET", "/control/status") => json!({
+                        "state":"ok","pinned_send":true,"auth_state":"authenticated",
+                        "account":{"account_id":"acc-rl","id":"u1"}
+                    }),
+                    ("GET", p) if p.starts_with("/control/chats/") => {
+                        read_calls_bg.fetch_add(1, Ordering::AcqRel);
+                        json!({
+                            "state":"ok","chat_id":"chat-lead-1","gizmo_id":"proj-1",
+                            "user_turn_count":2,"messages":[]
+                        })
+                    }
+                    ("POST", "/control/observe") => {
+                        if observe_429_bg.load(Ordering::Acquire) {
+                            json!({
+                                "state":"error","error":"backend_http_429",
+                                "detail":"Too many requests","retry_after":"45"
+                            })
+                        } else if send_429_bg.load(Ordering::Acquire) {
+                            json!({"state":"settled","generating":false,"chat_id":"chat-lead-1"})
+                        } else {
+                            json!({"state":"in_progress","generating":true,"chat_id":"chat-w1"})
+                        }
+                    }
+                    ("POST", "/control/send") => {
+                        if send_429_bg.load(Ordering::Acquire) {
+                            json!({
+                                "state":"error","error":"backend_http_429",
+                                "detail":"Too many requests","retry_after":"45"
+                            })
+                        } else {
+                            json!({"state":"in_progress","chat_id":"chat-w-new"})
+                        }
+                    }
+                    _ => json!({"state":"ok"}),
+                };
+                let payload = body.to_string();
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    payload.len(),
+                    payload
+                );
+                let _ = stream.write_all(resp.as_bytes());
+            }
+        });
+
+        let ledger = ledger::Ledger::open(root.join("orch")).unwrap();
+        let owners = owners::OwnerClient::new(owners::OwnerConfig {
+            provider_url: format!("http://{addr}"),
+            token_path: Some(tok_path),
+            home: root.clone(),
+            tmpdir: root.clone(),
+            codex_socket_override: None,
+            notify_cmd: Some("true".to_owned()),
+        });
+        let mut handler =
+            mcp::OrchMcpHandler::new(ledger.clone(), owners.clone(), root.join("receipts"));
+
+        // Create Work with ChatGPT Lead + 2 active ChatGPT workers (hitting default cap 2)
+        let mut work = ledger::WorkRecord {
+            schema: ledger::WORK_SCHEMA.to_owned(),
+            work_id: "work_rl_test_0001".to_owned(),
+            title: "RL test".to_owned(),
+            tier: "orchestrated".to_owned(),
+            goal: "Test".to_owned(),
+            completion_criteria: vec![],
+            state: "running".to_owned(),
+            account_id: Some("acc-rl".to_owned()),
+            project_id: Some("proj-1".to_owned()),
+            project_name: None,
+            project_scope: None,
+            session_prefixes: Default::default(),
+            delivery_mode: "inject_and_notify".to_owned(),
+            front: ledger::FrontBinding {
+                latest_chat_id: Some("chat-lead-1".to_owned()),
+                generation: 1,
+                history: vec![],
+            },
+            lead: Some(ledger::LeadBinding {
+                kind: "chatgpt".to_owned(),
+                ref_id: "chat-lead-1".to_owned(),
+                turn_id: None,
+                profile: None,
+                model: None,
+                reasoning_effort: None,
+                generation: 1,
+                history: vec![],
+                rollover_internal_turns: 0,
+                dispatch_id: None,
+            }),
+            pending_lead: None,
+            lead_rollover: None,
+            lead_replay: None,
+            participants: vec![
+                ledger::Participant {
+                    extra: Default::default(),
+                    participant_id: "W1".to_owned(),
+                    index: 1,
+                    role: "worker".to_owned(),
+                    backend: "chatgpt".to_owned(),
+                    ref_id: "chat-w1".to_owned(),
+                    turn_id: None,
+                    profile: None,
+                    slug: "w1".to_owned(),
+                    task_summary: "w1".to_owned(),
+                    owner_scope: None,
+                    write_workspace: None,
+                    step_id: None,
+                    worktree: None,
+                    changed_paths: vec![],
+                    write_paths: vec![],
+                    call_id: None,
+                    dispatch_id: None,
+                    state: "running".to_owned(),
+                    result_summary: None,
+                    verification: None,
+                    created_at_unix: ledger::now_unix(),
+                    updated_at_unix: ledger::now_unix(),
+                },
+                ledger::Participant {
+                    extra: Default::default(),
+                    participant_id: "W2".to_owned(),
+                    index: 2,
+                    role: "worker".to_owned(),
+                    backend: "chatgpt".to_owned(),
+                    ref_id: "chat-w2".to_owned(),
+                    turn_id: None,
+                    profile: None,
+                    slug: "w2".to_owned(),
+                    task_summary: "w2".to_owned(),
+                    owner_scope: None,
+                    write_workspace: None,
+                    step_id: None,
+                    worktree: None,
+                    changed_paths: vec![],
+                    write_paths: vec![],
+                    call_id: None,
+                    dispatch_id: None,
+                    state: "running".to_owned(),
+                    result_summary: None,
+                    verification: None,
+                    created_at_unix: ledger::now_unix(),
+                    updated_at_unix: ledger::now_unix(),
+                },
+            ],
+            steps: vec![],
+            verification_policy: ledger::VerificationPolicy::None,
+            review_cwd: None,
+            wait_set: None,
+            pending_deliveries: vec![],
+            consumed_seq: 0,
+            last_seq: 1,
+            budget: ledger::WorkBudget::default(),
+            created_at_unix: ledger::now_unix(),
+            updated_at_unix: ledger::now_unix(),
+            extra: Default::default(),
+        };
+        ledger.save_work(&work).unwrap();
+
+        // 1. Per-account ChatGPT concurrency cap rejects 3rd ChatGPT worker before touching provider.
+        let (cap_res, cap_err) = handler.call_tool(
+            "orch_dispatch",
+            &json!({
+                "action": "register_worker",
+                "work_id": "work_rl_test_0001",
+                "backend": "chatgpt",
+                "slug": "w3",
+                "task_summary": "w3",
+                "prompt": "run third worker",
+                "call_id": "cap-check-3"
+            }),
+        );
+        assert!(cap_err, "{cap_res}");
+        assert_eq!(cap_res["error"], "chatgpt_concurrency_limit", "{cap_res}");
+
+        // 2. Five consecutive ticks must NOT hammer GET /control/chats/chat-lead-1 (at most 1 read).
+        let relay = relay::RelayEngine::new(ledger.clone(), owners.clone());
+        for _ in 0..5 {
+            let _ = relay.tick_once();
+        }
+        assert_eq!(
+            read_calls.load(Ordering::Acquire),
+            1,
+            "automatic_reason must not poll GET /conversation on every 2s tick"
+        );
+
+        // 3. Transient 429 on observe must NOT mark running ChatGPT worker as failed,
+        // and must engage OwnerGate cooldown so subsequent ticks make 0 HTTP calls.
+        observe_429.store(true, Ordering::Release);
+        let _ = relay.tick_once();
+        let after_obs = ledger.load_work("work_rl_test_0001").unwrap();
+        assert_eq!(after_obs.participants[0].state, "running");
+        assert!(owners.chatgpt_cooldown_remaining_secs() > 0);
+        assert!(owners.rate_limit_hits() >= 1);
+        let calls_at_cooldown = owners.remote_chatgpt_calls();
+        for _ in 0..3 {
+            let _ = relay.tick_once();
+        }
+        assert_eq!(
+            owners.remote_chatgpt_calls(),
+            calls_at_cooldown,
+            "OwnerGate cooldown must suppress remote ChatGPT calls"
+        );
+
+        // 4. Fresh OwnerClient: 429 on delivery send clears dispatch (no stuck delivery_receipt_unconfirmed)
+        // and applies Retry-After backoff >= 45s.
+        observe_429.store(false, Ordering::Release);
+        send_429.store(true, Ordering::Release);
+        work.participants.clear();
+        work.pending_deliveries.push(ledger::PendingDelivery {
+            delivery_id: "wakeup:test:1".to_owned(),
+            target: "lead".to_owned(),
+            kind: "wakeup".to_owned(),
+            title: "wake".to_owned(),
+            payload_text: "hello".to_owned(),
+            advance_seq_to: Some(1),
+            dispatch: None,
+            receipts_tracked: true,
+            notified: false,
+            attempts: 0,
+            next_attempt_unix: 0,
+            last_error: None,
+            created_at_unix: ledger::now_unix(),
+        });
+        ledger.save_work(&work).unwrap();
+        let fresh_owners = owners::OwnerClient::new(owners::OwnerConfig {
+            provider_url: format!("http://{addr}"),
+            token_path: Some(root.join("control.token")),
+            home: root.clone(),
+            tmpdir: root.clone(),
+            codex_socket_override: None,
+            notify_cmd: Some("true".to_owned()),
+        });
+        let fresh_relay = relay::RelayEngine::new(ledger.clone(), fresh_owners.clone());
+        let now_before = ledger::now_unix();
+        let summary = fresh_relay.tick_once();
+        assert_eq!(summary.deliveries_deferred, 1);
+        let after_429 = ledger.load_work("work_rl_test_0001").unwrap();
+        assert_eq!(after_429.pending_deliveries.len(), 1);
+        let del = &after_429.pending_deliveries[0];
+        assert!(
+            del.dispatch.is_none(),
+            "backend_http_429 must clear delivery.dispatch instead of sticking in delivery_receipt_unconfirmed"
+        );
+        assert_eq!(del.last_error.as_deref(), Some("backend_http_429"));
+        assert!(
+            del.next_attempt_unix >= now_before + 45,
+            "delivery backoff must honor retry_after=45s (got {} vs {})",
+            del.next_attempt_unix,
+            now_before + 45
+        );
+        assert!(fresh_owners.chatgpt_cooldown_remaining_secs() > 0);
+
+        stop.store(true, Ordering::Release);
+        let _ = srv.join();
+        let _ = fs::remove_dir_all(&root);
+    }
 }

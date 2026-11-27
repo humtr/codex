@@ -1257,6 +1257,47 @@ test("Retry-After propagates and rejects subsequent dispatches without replay un
   assert.equal(startCalls.length, 1);
 });
 
+test("HTTP 429 without Retry-After header enforces default cooldown across readChat and observeChat without false settlement", async () => {
+  let readCalls = 0;
+  const { driver } = createMockEnv({
+    apiMap: {
+      "GET /backend-api/me": { status: 200, body: { account_id: "acc-1" } },
+      "GET /backend-api/conversation/c-rl": {
+        status: 429,
+        body: () => {
+          readCalls += 1;
+          return { detail: "Too many requests" };
+        },
+      },
+      "GET /backend-api/conversation/c-rl/stream_status": {
+        status: 429,
+        body: () => {
+          readCalls += 1;
+          return { detail: "Too many requests" };
+        },
+      },
+    },
+  });
+  const first = await driver.readChat({ chat_id: "c-rl", limit: 1 });
+  assert.equal(first.state, "error");
+  assert.equal(first.error, "backend_http_429");
+  assert.equal(first.retry_after, "60");
+  assert.equal(readCalls, 1);
+
+  // Subsequent readChat and observeChat must short-circuit locally without hitting backend-api,
+  // and observeChat must return error (never false "settled").
+  const second = await driver.readChat({ chat_id: "c-rl", limit: 1 });
+  assert.equal(second.state, "error");
+  assert.equal(second.error, "backend_http_429");
+  assert.ok(Number(second.retry_after) > 0);
+
+  const obs = await driver.observeChat({ chat_id: "c-rl" });
+  assert.equal(obs.state, "error");
+  assert.equal(obs.error, "backend_http_429");
+  assert.ok(Number(obs.retry_after) > 0);
+  assert.equal(readCalls, 1, "cooldown must block subsequent backend-api reads");
+});
+
 test("resumed extension after early commit reuses one ext item instead of duplicating chunks", async () => {
   const { driver } = createMockEnv({
     apiMap: { "GET /backend-api/me": { status: 200, body: { account_id: "acc-1" } } },

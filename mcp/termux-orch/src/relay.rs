@@ -17,15 +17,31 @@ use crate::ledger::{
     Participant, PendingDelivery, StepFailure, Verdict, Verification, VerificationPolicy, WaitSet,
     WorkRecord,
 };
-use crate::owners::OwnerClient;
+use crate::owners::{parse_retry_after_secs, OwnerClient, DEFAULT_429_COOLDOWN_SECS};
 use serde_json::json;
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{mpsc, Arc};
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
+
+const DEFAULT_ROLLOVER_CHECK_SECS: u64 = 60;
+const MAX_UNCONFIRMED_READBACK_ATTEMPTS: u32 = 5;
+
+fn relay_log(event: &str, fields: serde_json::Value) {
+    eprintln!(
+        "{}",
+        json!({
+            "component": "termux-orch-relay",
+            "event": event,
+            "ts_unix": now_unix(),
+            "data": fields
+        })
+    );
+}
 
 #[derive(Debug, Default, Clone)]
 pub struct TickSummary {
@@ -41,11 +57,55 @@ pub struct TickSummary {
 pub struct RelayEngine {
     ledger: Ledger,
     owners: OwnerClient,
+    rollover_checks: Mutex<HashMap<String, (Instant, u64)>>,
+    rollover_check_interval: Duration,
 }
 
 impl RelayEngine {
     pub fn new(ledger: Ledger, owners: OwnerClient) -> Self {
-        Self { ledger, owners }
+        let secs = std::env::var("ORCH_ROLLOVER_CHECK_SECS")
+            .ok()
+            .and_then(|v| v.trim().parse::<u64>().ok())
+            .map(|n| n.clamp(0, 600))
+            .unwrap_or(DEFAULT_ROLLOVER_CHECK_SECS);
+        Self {
+            ledger,
+            owners,
+            rollover_checks: Mutex::new(HashMap::new()),
+            rollover_check_interval: Duration::from_secs(secs),
+        }
+    }
+
+    fn should_check_rollover(&self, work: &WorkRecord) -> bool {
+        if self.owners.chatgpt_cooldown_remaining_secs() > 0 {
+            return false;
+        }
+        let Ok(mut guard) = self.rollover_checks.lock() else {
+            return false;
+        };
+        let now = Instant::now();
+        match guard.get(&work.work_id).copied() {
+            None => {
+                guard.insert(work.work_id.clone(), (now, work.last_seq));
+                true
+            }
+            Some((last_at, last_seq)) => {
+                if now.duration_since(last_at) < self.rollover_check_interval {
+                    return false;
+                }
+                if work.budget.lead_rollover_turns == 0 && work.last_seq == last_seq {
+                    return false;
+                }
+                guard.insert(work.work_id.clone(), (now, work.last_seq));
+                true
+            }
+        }
+    }
+
+    fn invalidate_rollover_check(&self, work_id: &str) {
+        if let Ok(mut guard) = self.rollover_checks.lock() {
+            guard.remove(work_id);
+        }
     }
 
     pub fn tick_once(&self) -> TickSummary {
@@ -188,7 +248,21 @@ impl RelayEngine {
                             } else if obs.state == "error" {
                                 let detail =
                                     obs.error.unwrap_or_else(|| "chatgpt_turn_error".to_owned());
-                                newly_settled.push((idx, "failed".to_owned(), detail));
+                                if matches!(
+                                    detail.as_str(),
+                                    "backend_http_429" | "retry_after_cooldown"
+                                ) {
+                                    relay_log(
+                                        "worker_observe_rate_limited",
+                                        json!({
+                                            "work_id": work_id,
+                                            "participant": p.participant_id,
+                                            "retry_after_secs": obs.retry_after_secs.unwrap_or(DEFAULT_429_COOLDOWN_SECS)
+                                        }),
+                                    );
+                                } else {
+                                    newly_settled.push((idx, "failed".to_owned(), detail));
+                                }
                             }
                         }
                     }
@@ -372,8 +446,16 @@ impl RelayEngine {
                 .map_err(|e| format!("lead replay failed: {e}"))?;
             return Ok(summary);
         }
-        if work.can_start() && work.pending_lead.is_none() {
+        if work.can_start()
+            && work.pending_lead.is_none()
+            && work.lead.as_ref().is_some_and(|l| l.kind == "chatgpt")
+            && self.should_check_rollover(&work)
+        {
             if let Some(reason) = rollover.automatic_reason(&work) {
+                relay_log(
+                    "lead_rollover_auto_triggered",
+                    json!({ "work_id": work.work_id, "reason": reason }),
+                );
                 rollover
                     .start(&mut work, &reason, None)
                     .map_err(|e| format!("automatic lead rollover failed: {e}"))?;
@@ -559,17 +641,79 @@ impl RelayEngine {
                         &format!("{} delivered ({})", delivery.kind, delivery.target),
                         json!({"delivery_id": delivery.delivery_id, "target": delivery.target, "kind": delivery.kind}),
                     ).map_err(|e| e.to_string())?;
+                    relay_log(
+                        "delivery_sent",
+                        json!({
+                            "work_id": work.work_id,
+                            "delivery_id": delivery.delivery_id,
+                            "target": delivery.target,
+                            "kind": delivery.kind
+                        }),
+                    );
+                    if delivery.target == "lead" {
+                        self.invalidate_rollover_check(&work.work_id);
+                    }
                     work.pending_deliveries.remove(index);
                     summary.deliveries_sent += 1;
                 }
-                DeliveryOutcome::Defer(reason) => {
+                DeliveryOutcome::Defer {
+                    reason,
+                    min_backoff_secs,
+                } => {
                     delivery.attempts = delivery.attempts.saturating_add(1);
                     let shift = delivery.attempts.saturating_sub(1).min(4);
-                    let backoff = (5u64 << shift).min(60);
+                    let backoff = (5u64 << shift).min(60).max(min_backoff_secs);
                     delivery.next_attempt_unix = now + backoff;
                     delivery.last_error = Some(truncate_chars(&reason, 240));
+                    relay_log(
+                        "delivery_deferred",
+                        json!({
+                            "work_id": work.work_id,
+                            "delivery_id": delivery.delivery_id,
+                            "target": delivery.target,
+                            "attempts": delivery.attempts,
+                            "backoff_secs": backoff,
+                            "reason": truncate_chars(&reason, 120)
+                        }),
+                    );
                     work.pending_deliveries[index] = delivery;
                     index += 1;
+                    summary.deliveries_deferred += 1;
+                }
+                DeliveryOutcome::Escalate(reason) => {
+                    let escalation_title = format!("[Work] {} — 전달 확인 필요", work.title);
+                    let escalation_body = format!(
+                        "delivery_id={} target={} 사유: {}",
+                        delivery.delivery_id, delivery.target, reason
+                    );
+                    let _ = self.owners.send_notification(
+                        &work.work_id,
+                        &escalation_title,
+                        &escalation_body,
+                    );
+                    let _ = self.ledger.append_event_if_absent(
+                        &mut work,
+                        &format!("escalated:{}", delivery.delivery_id),
+                        "delivery.escalated",
+                        "runtime",
+                        &escalation_body,
+                        json!({
+                            "delivery_id": delivery.delivery_id,
+                            "target": delivery.target,
+                            "reason": reason
+                        }),
+                    );
+                    relay_log(
+                        "delivery_escalated",
+                        json!({
+                            "work_id": work.work_id,
+                            "delivery_id": delivery.delivery_id,
+                            "target": delivery.target,
+                            "reason": truncate_chars(&reason, 120)
+                        }),
+                    );
+                    work.state = "waiting_user".to_owned();
+                    work.pending_deliveries.remove(index);
                     summary.deliveries_deferred += 1;
                 }
             }
@@ -585,7 +729,15 @@ impl RelayEngine {
         index: usize,
         delivery: &mut PendingDelivery,
     ) -> Result<DeliveryOutcome, String> {
-        use DeliveryOutcome::{Defer, Delivered};
+        use DeliveryOutcome::{Defer, Delivered, Escalate};
+        let defer = |reason: String| Defer {
+            reason,
+            min_backoff_secs: 0,
+        };
+        let defer_with = |reason: String, min_backoff_secs: u64| Defer {
+            reason,
+            min_backoff_secs,
+        };
         if !delivery.receipts_tracked {
             // Older wakeups could contain only a fragment of the acknowledged range.
             delivery.advance_seq_to = None;
@@ -599,7 +751,7 @@ impl RelayEngine {
                         )
                 })
             {
-                return Ok(Defer("legacy_delivery_receipt_unconfirmed".to_owned()));
+                return Ok(defer("legacy_delivery_receipt_unconfirmed".to_owned()));
             }
             delivery.receipts_tracked = true;
         }
@@ -618,7 +770,7 @@ impl RelayEngine {
                 return Ok(if delivery.notified {
                     Delivered
                 } else {
-                    Defer("front_notification_failed".to_owned())
+                    defer("front_notification_failed".to_owned())
                 });
             }
         }
@@ -626,6 +778,10 @@ impl RelayEngine {
             let marker = format!("[ORCH_DELIVERY {}]", dispatch.lane_id);
             let confirmation = match dispatch.backend.as_str() {
                 "chatgpt" => {
+                    let rem = self.owners.chatgpt_cooldown_remaining_secs();
+                    if rem > 0 {
+                        return Ok(defer_with("backend_http_429".to_owned(), rem));
+                    }
                     let account_matches = match work.account_id.as_deref() {
                         Some(account) => self
                             .owners
@@ -634,7 +790,7 @@ impl RelayEngine {
                         None => false,
                     };
                     if !account_matches {
-                        return Ok(Defer("delivery_account_unverified".to_owned()));
+                        return Ok(defer("delivery_account_unverified".to_owned()));
                     }
                     self.owners.chatgpt_has_delivery_marker(
                         &dispatch.ref_id,
@@ -651,12 +807,32 @@ impl RelayEngine {
                     &dispatch.ref_id,
                     &marker,
                 ),
-                _ => return Ok(Defer("unsupported_delivery_backend".to_owned())),
+                _ => return Ok(defer("unsupported_delivery_backend".to_owned())),
             };
             return Ok(match confirmation {
                 Ok(true) => Delivered,
-                Ok(false) => Defer("delivery_receipt_unconfirmed".to_owned()),
-                Err(error) => Defer(error),
+                Ok(false) => {
+                    if delivery.attempts >= MAX_UNCONFIRMED_READBACK_ATTEMPTS {
+                        Escalate(format!(
+                            "delivery_receipt_unconfirmed after {} verified readbacks",
+                            delivery.attempts
+                        ))
+                    } else {
+                        defer("delivery_receipt_unconfirmed".to_owned())
+                    }
+                }
+                Err(error) => {
+                    let backoff = if error.contains("backend_http_429")
+                        || error.contains("retry_after_cooldown")
+                    {
+                        self.owners
+                            .chatgpt_cooldown_remaining_secs()
+                            .max(DEFAULT_429_COOLDOWN_SECS)
+                    } else {
+                        0
+                    };
+                    defer_with(error, backoff)
+                }
             });
         }
 
@@ -664,9 +840,9 @@ impl RelayEngine {
             "front" => None,
             "lead" => match &work.lead {
                 Some(lead) => Some(lead.clone()),
-                None => return Ok(Defer("no_lead_bound".to_owned())),
+                None => return Ok(defer("no_lead_bound".to_owned())),
             },
-            _ => return Ok(Defer("unsupported_delivery_target".to_owned())),
+            _ => return Ok(defer("unsupported_delivery_target".to_owned())),
         };
         let (backend, ref_id, profile) = match &lead {
             Some(lead) => (
@@ -684,11 +860,27 @@ impl RelayEngine {
             ),
         };
         if backend == "chatgpt" && work.account_id.is_none() {
-            return Ok(Defer("delivery_account_unverified".to_owned()));
+            return Ok(defer("delivery_account_unverified".to_owned()));
+        }
+        if backend == "chatgpt" {
+            let rem = self.owners.chatgpt_cooldown_remaining_secs();
+            if rem > 0 {
+                return Ok(defer_with("backend_http_429".to_owned(), rem));
+            }
         }
         let ready = match backend {
             "chatgpt" => self.owners.chatgpt_observe(&ref_id).and_then(|obs| {
-                if obs.generating {
+                if obs.state == "error"
+                    && matches!(
+                        obs.error.as_deref(),
+                        Some("backend_http_429" | "retry_after_cooldown")
+                    )
+                {
+                    Err(format!(
+                        "backend_http_429:retry_after={}",
+                        obs.retry_after_secs.unwrap_or(DEFAULT_429_COOLDOWN_SECS)
+                    ))
+                } else if obs.generating {
                     Err(format!(
                         "{}_chat_busy({})",
                         delivery.target,
@@ -708,10 +900,17 @@ impl RelayEngine {
                         Ok(())
                     }
                 }),
-            _ => return Ok(Defer("unsupported_delivery_backend".to_owned())),
+            _ => return Ok(defer("unsupported_delivery_backend".to_owned())),
         };
         if let Err(error) = ready {
-            return Ok(Defer(error));
+            let backoff = if error.starts_with("backend_http_429") {
+                self.owners
+                    .chatgpt_cooldown_remaining_secs()
+                    .max(DEFAULT_429_COOLDOWN_SECS)
+            } else {
+                0
+            };
+            return Ok(defer_with(error, backoff));
         }
         let lane_id = generate_id("delivery");
         let marker = format!("[ORCH_DELIVERY {lane_id}]");
@@ -738,11 +937,37 @@ impl RelayEngine {
             ) {
                 Ok(receipt) if crate::rollover::rejected_before_send(&receipt) => {
                     delivery.dispatch = None;
-                    Defer(
+                    let err_code = receipt["error"]
+                        .as_str()
+                        .unwrap_or("delivery_rejected")
+                        .to_owned();
+                    let min_backoff = if matches!(
+                        err_code.as_str(),
+                        "backend_http_429" | "retry_after_cooldown"
+                    ) {
+                        parse_retry_after_secs(&receipt)
+                            .unwrap_or(DEFAULT_429_COOLDOWN_SECS)
+                            .max(self.owners.chatgpt_cooldown_remaining_secs())
+                    } else {
+                        0
+                    };
+                    defer_with(err_code, min_backoff)
+                }
+                Ok(receipt)
+                    if receipt["state"] == "error"
+                        && delivery.target == "lead"
+                        && crate::rollover::is_context_limit_error(
+                            receipt["error"].as_str().unwrap_or_default(),
+                        ) =>
+                {
+                    delivery.dispatch = None;
+                    self.invalidate_rollover_check(&work.work_id);
+                    defer_with(
                         receipt["error"]
                             .as_str()
-                            .unwrap_or("delivery_rejected")
+                            .unwrap_or("context_limit")
                             .to_owned(),
+                        2,
                     )
                 }
                 Ok(receipt)
@@ -751,8 +976,8 @@ impl RelayEngine {
                 {
                     Delivered
                 }
-                Ok(_) => Defer("delivery_receipt_unconfirmed".to_owned()),
-                Err(error) => Defer(error),
+                Ok(_) => defer("delivery_receipt_unconfirmed".to_owned()),
+                Err(error) => defer(error),
             },
             "codex" => match self.owners.codex_dispatch_turn(
                 profile.as_deref(),
@@ -767,8 +992,8 @@ impl RelayEngine {
                 |_| Ok(()),
             ) {
                 Ok((thread, Some(_))) if thread == ref_id => Delivered,
-                Ok(_) => Defer("delivery_receipt_unconfirmed".to_owned()),
-                Err(error) => Defer(error),
+                Ok(_) => defer("delivery_receipt_unconfirmed".to_owned()),
+                Err(error) => defer(error),
             },
             _ => unreachable!("unsupported backend rejected before dispatch"),
         })
@@ -1475,7 +1700,11 @@ impl RelayEngine {
 
 enum DeliveryOutcome {
     Delivered,
-    Defer(String),
+    Defer {
+        reason: String,
+        min_backoff_secs: u64,
+    },
+    Escalate(String),
 }
 
 #[derive(serde::Deserialize)]
@@ -1706,8 +1935,17 @@ pub fn run_relay_daemon(
 
     let health = Arc::new(RelayHealth::default());
     let server_health = Arc::clone(&health);
+    let health_owners = owners.clone();
     let state_root_str = ledger.root().display().to_string();
     let (wake_tx, wake_rx) = mpsc::sync_channel(1);
+    relay_log(
+        "relay_started",
+        json!({
+            "bind": local_addr.to_string(),
+            "poll_ms": poll_ms.clamp(250, 60_000),
+            "state_root": state_root_str
+        }),
+    );
     let health_handle = std::thread::spawn(move || {
         while !STOP_FLAG.load(Ordering::Acquire) {
             match listener.accept() {
@@ -1730,6 +1968,10 @@ pub fn run_relay_daemon(
                                 "last_tick_errors": server_health.last_tick_errors.load(Ordering::Acquire),
                                 "wake_pushes": server_health.wake_pushes.load(Ordering::Acquire),
                                 "last_wake_tick_ms": server_health.last_wake_tick_ms.load(Ordering::Acquire),
+                                "chatgpt_cooldown_remaining_secs": health_owners.chatgpt_cooldown_remaining_secs(),
+                                "chatgpt_cooldown_until_unix": health_owners.chatgpt_cooldown_until_unix(),
+                                "rate_limit_hits": health_owners.rate_limit_hits(),
+                                "remote_chatgpt_calls": health_owners.remote_chatgpt_calls(),
                                 "state_root": state_root_str
                             })
                             .to_string();
