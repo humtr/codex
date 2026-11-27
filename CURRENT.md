@@ -27,18 +27,31 @@ qualification receipts have not been independently refreshed in this preflight.
 | **Milestone records** | Stage 1 WP0–WP6 and Stage 2 Slices 1–7 are archived | [Stage 1 milestones](docs/history/STAGE1_MILESTONES.md), [Stage 2 milestones](docs/history/STAGE2_MILESTONES.md) |
 
 
-The local E01 activation supersedes the Provider process and binary in the signed rollout snapshot.
-[Active Provider on port 4319](#2026-11-25--e01-proof-binary-active-on-port-4319)
+**Targeted refresh (2026-11-27):** the table above retains the earlier
+2026-11-25 snapshot for components not refreshed here. The selected upstream
+is now `releases/0.172.0-faf17b` (`codex-cli 0.172.0`). Provider and Orch
+are selected and running at `0.1.0-5a865216` (PIDs 18270 and 10032; actual
+executable SHA-256 values match the latest signed rollout record below).
+AppHost selected `26.1120.50957`; Provider health reports `ok=true` and
+`host_running=true`. The earlier local E01/Thin Option B activation is
+historical, not the active route. This refresh did not independently
+requalify other components, the release signatures or an authenticated turn.
 
 ### Unverified / Remaining Boundaries
 
-- **Provider native tool-return follow-up (P0 open, 2026-11-25).**
-  The user-directed local installation `0.1.0` is active on port 4319.
-  Its binary passed one structured Native call and return via the official
-  Codex CLI with actual AppHost, preserving the initial developer role and
-  the original tool ID. `HANDOFF.md` records the retained rollback generation
-  and the pending product gates.
-  [Ordered work and gates](docs/ROADMAP.md#0-next-provider-development-order)
+- **Provider presentation Phase 1 preparation (2026-11-27).** The current
+  MCP Single-Turn baseline was rebased for presentation work. Renderer unit
+  tests 4/4 passed; the independent 18-case oracle returned exit 1 (2/18
+  passed), confirming unresolved semantic and incremental display defects.
+  No product source change or live candidate qualification. See
+  [ROADMAP §11](docs/ROADMAP.md#11-deferred-codex-presentation-improvements)
+  and `HANDOFF.md`.
+- **Retired Native-return transition / active MCP continuity.** Old
+  pending-call migration and uncertain-effect reconciliation, remote MCP
+  approval boundary, latest CLI/TUI/app-server and physical UI qualification
+  remain separate open gates. Preserve the original work order in Git
+  (`3f12f956:HANDOFF.md`); do not re-enable the retired route or infer PASS.
+  [Remaining verification](docs/ROADMAP.md#10-chatgpt-provider-native-tool-return-and-structured-context)
 - **R-2.** The live two-account handoff via daemon RPC preserved the same UUID
   and an unrelated active source turn. The installed launcher passed an
   authenticated same-UUID switch with an idle source and rejects a switch
@@ -84,7 +97,8 @@ Transitioned `providers/chatgpt` from local function-call round-trips (`local_fu
   - Removed hardcoded fallback model versions (`config.rs` `default_models()` -> `["auto"]`) and aligned `mcp/termux-orch` (`owners.rs` Codex `turn/start` `effort` forwarding, `lead_model_provider`, MCP single-turn Lead/Front prompts, `turn.rs` bridge guidance including `TermuxOrch`, model-agnostic `ORCHESTRATION.md`). Local gates: `providers/chatgpt` `cargo test` **36/36 PASS** (1 ignored) + `node --test` **14/14 PASS**; `mcp/termux-orch` **10/10 unit + 15/15 E2E PASS** (`clippy -D warnings` 0 warnings on both).
   - Signed CI published & readback-verified: `chatgpt-provider` (`sequence=49`, `0.1.0-5a865216`, [run 45929524556](https://github.com/humtr/codex/actions/runs/45929524556), binary SHA-256 `25f350c877ad859fb89874e59f88f91a9d7b5f3f0f017bc6fb4ce487b71def6f`, rollback `0.1.0-612d2261`); `termux-orch` (`sequence=25`, `0.1.0-5a865216`, [run 45929528565](https://github.com/humtr/codex/actions/runs/45929528565), binary SHA-256 `2e22ee1cbac82f06eae54ef78089a0560046ea31e3d0002f1d567f68887763e2`, rollback `0.1.0-72348a3b`).
   - Live `runit` activation verified via `/proc/<pid>/exe` exact SHA-256 match (`chatgpt-provider` PID `9973`, `termux-orch-relay` PID `10032`, `termux-orch-tunnel` PID `10041`); all 4 MCP tunnels return `HTTP 200` on `/readyz`, `@TermuxOrch` connector (`asdk_app_6b03de61dd748191bf56fef2b1029a2e`) refreshed `ok`, and signed live single-turn E2E passed for both `TermuxOrch` (`orch_call(relay_status)` + `orch_works(list)`, `22.98s`, `fn_calls=0`, `Worked for 6s`, `active_works=0`) and `TermuxShell` (`11.33s`, `fn_calls=0`, returned exact `5a865216`).
-  - **AppHost upgrade to GPG-verified `26.1120.50957` (`Chrome/158.0.8127.89`, `codexBuildNumber=30866`, deb SHA-256 `d11adb9a...`, rollback `previous -> 26.1117.41037`):** Passed `app.asar` contract check (21/21 symbols intact, `-40.9 MiB` smaller `app.asar`), isolated CDP boot probe (`6,509ms`), isolated `page_driver.js` probe (`app_host_http_fetch`), and live authenticated activation on port `4319` (`chatgpt-provider` PID `18270`, `auth_state=authenticated`, `completion_ready=true`, 1-turn `TermuxShell` E2E `24.7s`, `fn_calls=0`, `Worked for 4s`, exact HEAD `84fde7aa`).
+  - **AppHost upgrade to GPG-verified `26.1120.50957` (`Chrome/158.0.8127.89`, `codexBuildNumber=30866`, deb SHA-256 `d11adb9a...`, rollback `previous -> 26.1117.41037`):** Passed `app.asar` contract check (21/21 symbols intact, `-40.9 MiB` smaller `app.asar`), isolated CDP boot probe (`6,509ms`), isolated `page_driver.js` probe (`app_host_http_fetch`), and live authenticated activation on port `4319` (`auth_state=authenticated`, `completion_ready=true`, 1-turn `TermuxShell` E2E `24.7s`, `fn_calls=0`, `Worked for 4s`).
+  - **Signed `chatgpt-provider` `0.1.0-93312687` (`sequence=51`, [run 45936301266](https://github.com/humtr/codex/actions/runs/45936301266), SHA-256 `41a88042672c3c671a1e8ef5106aff12356c4a9ea232529404b9f9316aa90aec`, PID `2935` `/proc/2935/exe` verified, rollback `0.1.0-5a865216`):** Fixed `turn.rs` `is_background_utility_request()` (catching Codex `0.172.0` `title_gen` even when `tools` and `request_kind=turn` are attached), fixed `page_driver.js` `:ext:` single-item reuse after early commits, and added `current_node` sync + `[ChatGPT 앱에서 이어진 대화 동기화]` `commentary` emission on Responses continuations. Verified local gates (Rust `36/36`, Node `16/16`, `clippy -D warnings`) and live on `:4319` (`title_gen` returned `'Fix ghost chat titles in provider'` with `0` persisted threads; App Turn 2 `MANGO_SYNC_7741` synced into Codex Turn 3 `commentary` and answered verbatim). Also empirically verified Codex `0.172.0` `thread/inject_items` in a disposable home (writes raw `response_item` to rollout with `0` TUI notifications and `turns: 0` on `thread/read`).
 
 ### 2026-11-26 — Phase 2 Thin Option B refactoring, utility isolation, auto-project routing, and live A/B qualification
 
