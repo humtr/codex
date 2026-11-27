@@ -841,6 +841,147 @@ mod tests {
                 .blocking_issues,
             ["regression"]
         );
+        // Exercise the actual provider observation -> relay verdict -> ledger
+        // -> completion path, not just a JSON parser or a fabricated ledger.
+        for (case, expected) in [
+            ("wrapped-pass", "pass"),
+            ("wrapped-fail", "fail"),
+            ("wrong-challenge", "inconclusive"),
+            ("stale-subject", "inconclusive"),
+            ("empty-evidence", "inconclusive"),
+            ("pass-with-blocker", "inconclusive"),
+            ("prefix-prose", "inconclusive"),
+            ("suffix-prose", "inconclusive"),
+            ("nested-wrapper", "inconclusive"),
+            ("unknown-field", "inconclusive"),
+            ("duplicate-verdict", "inconclusive"),
+            ("oversize-evidence", "inconclusive"),
+            ("raw-pass", "pass"),
+        ] {
+            let (created, error) = handler.call_tool(
+                "orch_work",
+                &json!({
+                    "action":"create", "call_id":format!("verdict-case-{case}"),
+                    "title":"Verdict envelope fixture", "goal":"Check owner receipt",
+                    "verification_policy":"independent_review", "delivery_mode":"notify_only"
+                }),
+            );
+            assert!(!error, "{created}");
+            let id = created["work_id"].as_str().unwrap();
+            let (bound, error) = handler.call_tool(
+                "orch_dispatch",
+                &json!({
+                    "action":"register_verifier", "call_id":format!("verdict-bind-{case}"),
+                    "work_id":id, "backend":"chatgpt", "ref_id":"chat-verifier", "slug":"audit"
+                }),
+            );
+            assert!(!error, "{bound}");
+            let record = ledger.load_work(id).unwrap();
+            let verification = record.participants[0].verification.as_ref().unwrap();
+            let mut payload = json!({
+                "challenge":verification.challenge, "verdict":"pass",
+                "evidence_refs":["fixture.log:1"], "blocking_issues":[]
+            });
+            match case {
+                "wrapped-fail" => {
+                    payload["verdict"] = json!("fail");
+                    payload["blocking_issues"] = json!(["fixture regression"]);
+                }
+                "wrong-challenge" => payload["challenge"] = json!("wrong"),
+                "empty-evidence" => payload["evidence_refs"] = json!([]),
+                "pass-with-blocker" => payload["blocking_issues"] = json!(["regression"]),
+                "unknown-field" => payload["unexpected"] = json!(true),
+                "oversize-evidence" => payload["evidence_refs"] = json!(["x".repeat(401)]),
+                "stale-subject" => {
+                    let (changed, error) = handler.call_tool(
+                        "orch_work",
+                        &json!({
+                            "action":"update_scope", "call_id":"verdict-stale-scope",
+                            "work_id":id, "goal":"Changed after registration"
+                        }),
+                    );
+                    assert!(!error, "{changed}");
+                }
+                _ => {}
+            }
+            let wrapped = format!("<escape>\n{payload}\n</escape>");
+            let wire = match case {
+                "prefix-prose" => format!("Note: {wrapped}"),
+                "suffix-prose" => format!("{wrapped} Note"),
+                "nested-wrapper" => format!("<escape>{wrapped}</escape>"),
+                "duplicate-verdict" => wrapped.replacen(
+                    "\"verdict\":\"pass\"",
+                    "\"verdict\":\"fail\",\"verdict\":\"pass\"",
+                    1,
+                ),
+                "raw-pass" => payload.to_string(),
+                _ => wrapped,
+            };
+            mstate.lock().unwrap().structured_review = Some(wire);
+            RelayEngine::new(ledger.clone(), owners.clone())
+                .process_work(id)
+                .unwrap();
+            let saved = ledger.load_work(id).unwrap();
+            let verdict = saved.participants[0].verification.as_ref().unwrap();
+            assert_eq!(json!(verdict.verdict), json!(expected), "{case}");
+            assert_eq!(saved.participants[0].state, "completed", "{case}");
+            let event_kind = match expected {
+                "pass" => "verifier.passed",
+                "fail" => "verifier.rejected",
+                _ => "verifier.inconclusive",
+            };
+            let events = ledger.read_events(id, 0, 100).unwrap();
+            assert_eq!(
+                events.iter().filter(|e| e.kind == event_kind).count(),
+                1,
+                "{case}"
+            );
+            // Restart/re-entry must not re-observe or reclassify a settled turn.
+            RelayEngine::new(ledger.clone(), owners.clone())
+                .process_work(id)
+                .unwrap();
+            let events = ledger.read_events(id, 0, 100).unwrap();
+            assert_eq!(
+                events.iter().filter(|e| e.kind == event_kind).count(),
+                1,
+                "{case}"
+            );
+            if expected == "pass" {
+                assert_eq!(verdict.evidence, ["fixture.log:1"]);
+                assert!(verdict.blocking_issues.is_empty());
+                let (completed, error) = handler.call_tool(
+                    "orch_report",
+                    &json!({
+                        "action":"complete", "call_id":format!("verdict-complete-{case}"),
+                        "work_id":id, "summary":"Verified", "flush_now":false
+                    }),
+                );
+                assert!(!error, "{case}: {completed}");
+                assert_eq!(completed["work_state"], "completed", "{case}");
+                // Settle this fixture's own completion delivery before the
+                // enclosing test measures another Work's delivery count.
+                let delivered = RelayEngine::new(ledger.clone(), owners.clone())
+                    .process_work(id)
+                    .unwrap();
+                assert_eq!(delivered.deliveries_sent, 1, "{case}");
+                assert!(ledger.load_work(id).unwrap().pending_deliveries.is_empty());
+            } else if expected == "fail" {
+                assert_eq!(saved.state, "failed_verification", "{case}");
+                assert_eq!(verdict.blocking_issues, ["fixture regression"]);
+            } else {
+                assert_eq!(saved.state, "waiting_user", "{case}");
+                assert!(verdict.evidence.is_empty(), "{case}");
+                let (blocked, error) = handler.call_tool(
+                    "orch_report",
+                    &json!({
+                        "action":"complete", "call_id":format!("verdict-blocked-{case}"),
+                        "work_id":id, "summary":"Must not complete", "flush_now":false
+                    }),
+                );
+                assert!(error, "{case}: {blocked}");
+                assert_eq!(blocked["error"], "verification_required", "{case}");
+            }
+        }
         let (lost_lead, error) = handler.call_tool(
             "orch_work",
             &json!({"action":"create",

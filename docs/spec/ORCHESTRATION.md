@@ -223,7 +223,11 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
 - **Verification and completion:** A registered verifier supplies a result
   separately from the terminal status of its turn. A model verifier returns
   the assigned challenge, a `pass`, `fail`, or `inconclusive` verdict, and
-  `evidence_refs`, and `blocking_issues`. A shell verifier uses the owner exit
+  `evidence_refs`, and `blocking_issues`. The relay accepts a strict JSON object
+  or, for a ChatGPT verifier, that object inside exactly one literal
+  `<escape>...</escape>` presentation envelope. It does not extract JSON from
+  prose, execute presentation markup, or relax challenge, evidence, subject,
+  or terminal-state validation. A shell verifier uses the owner exit
   receipt. `verification_policy=independent_review` starts a fresh Codex
   verifier after a completed plan or an eligible completion request that
   identifies the review workspace. Confirmed failure records

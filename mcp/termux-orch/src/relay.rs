@@ -1745,7 +1745,18 @@ fn verifier_result(
     if state != "completed" {
         return unverified;
     }
-    let Ok(result) = serde_json::from_str::<ModelVerdict>(text.trim()) else {
+    let text = text.trim();
+    // ChatGPT can store a literal JSON response in one presentation escape
+    // envelope. Decode only that exact outer envelope, not arbitrary markup
+    // or JSON embedded in prose. The same strict verdict checks still apply.
+    let text = if p.backend == "chatgpt" {
+        text.strip_prefix("<escape>")
+            .and_then(|inner| inner.strip_suffix("</escape>"))
+            .unwrap_or(text)
+    } else {
+        text
+    };
+    let Ok(result) = serde_json::from_str::<ModelVerdict>(text) else {
         return unverified;
     };
     if result.challenge != verification.challenge
