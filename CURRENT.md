@@ -53,6 +53,20 @@ separates `local_observe_calls` from `remote_chatgpt_calls`; Provider reports
 Wrapper bytes, upstream activation state, protected directory identities and
 unrelated services were preserved. See the 2026-11-28 cutover receipts below.
 
+**Cycle 1 targeted refresh (2026-11-28):** signed Provider and Termux-Orch
+`0.1.0-6143ae0e` are live (sequences 70 and 46; Provider PID `22796`,
+Orch relay PID `22797`, tunnel PID `22799`, MCP child PID `22833`). Both
+`previous` links select `0.1.0-313a3f74`; older generation directories and
+binary digests remain intact. The existing Termux-Codex MCP (`313a3f74`),
+Shell and ChatGPT tunnels and their MCP children were not restarted.
+Wrapper sequence 160 was explicitly authorized for byte-identical signed
+reinstallation; the upstream selection and executable digests are unchanged.
+All three target live executable digests match the signed artifacts;
+Provider is authenticated and completion-ready, relay health is OK with
+zero rate-limit hits at acceptance, and all four MCP `/readyz` checks return
+`200 ready`. See the Cycle 1 receipt below. This is a scoped cutover, not a
+new full-stack requalification.
+
 ### Unverified / Remaining Boundaries
 
 - **Provider presentation Phase 1 (2026-11-27).** The signed Phase 1
@@ -95,6 +109,75 @@ unrelated services were preserved. See the 2026-11-28 cutover receipts below.
 ---
 
 ## Recent Verified Evidence (Newest-First)
+
+### 2026-11-28 — Cycle 1 independent review and signed cutover (`6143ae0e`)
+
+- **Source and review.** Reviewed commit
+  `6143ae0e192c4cf8233f95bf7e2d9cd2053c8e60` (parent `6e969fea79ded3a7c570cde78a58ccb180683af1`),
+  16 files (+966/-182), includes six audited fixes, four scoped simplifications,
+  local-first attached-participant outcome handling, and deterministic mock HTTP
+  fixture repairs. The independent logical V2 (`V1` of Work
+  `work_f62ec6b1a09b8956ca800ddd892806fe`) returned a formal PASS with zero
+  blocking issues, challenge `verify_bf19a749cd31e08f`. The configured review
+  model was `gpt-6-2-thinking` / `max`; the actual model engine was not separately
+  attested. W4's complete 18/18 gate run passed against the byte-identical
+  reviewed snapshot (`812b710eefeb4c8065837f606e65c509757b67f378df28030f0b84918388bea9`):
+  four fmt, four locked strict clippy, both umask `0022` and `0077` locked
+  test suites (daemon-client 6, Termux-Codex 5, Orch 34, Provider 93 with
+  one existing ignored in each Provider run), Node 24/24 and doc links 24.
+  Historical W3 fixture failure causality was not conclusively established.
+- **Signed publication.** All jobs including signed publication passed in
+  [Termux-Orch #46129039967](https://github.com/humtr/codex/actions/runs/46129039967)
+  and [Provider #46129054046](https://github.com/humtr/codex/actions/runs/46129054046).
+  Both stable release tags resolve to the exact reviewed commit. Independent
+  readback verified Ed25519 signatures and archive/inner executable hashes with
+  pinned key SHA-256 `0df170dae2d7234b4425fcdddaa4bd9b6e2104794d0541955b022631b1105fca`.
+  Termux-Orch archive SHA-256 `70f44eb87d6830ed8851da7ff46dc643f49261942a4364b728d085cdaed98860`;
+  Provider archive SHA-256 `1b791df030b51f632efe85d52901aafdfea17d03118f1891f1cc076e9d43e72c`.
+  No Termux-Codex release or installation was requested for this unchanged component.
+- **Detached cutover.** After explicit byte-identical Wrapper authorization,
+  W2 waited for confirmed armed `wait_1d089561fff36323` before the three target
+  services were stopped. The sanctioned command was
+  `sv down chatgpt-provider termux-orch-tunnel termux-orch-relay && ./install.sh --require-signed --release wrapper --components chatgpt-provider,termux-orch --skip-upstream --no-setup && sv up chatgpt-provider termux-orch-tunnel termux-orch-relay`.
+  Shutdown, signed installation, startup, live verification and worker exit
+  all returned 0; the original Lead received W2's completion wake-up across
+  the restart. Installed and running executable SHA-256 values match:
+
+  | Process | PID | Signed sequence | Executable SHA-256 |
+  | --- | ---: | ---: | --- |
+  | `chatgpt-provider 0.1.0-6143ae0e` | 22796 | 70 | `520c8b967d4ed57b5bd960425d1ec57731d4e2b2a096ed3c6b900fd7f213f6d3` |
+  | `termux-orch-relay 0.1.0-6143ae0e` | 22797 | 46 | `4c81f3071a39989cb34d4cb655046748bda60d6b03b7d49b06563bb7f4f3febf` |
+  | `termux-orch` MCP child (tunnel `22799`) | 22833 | 46 | `4c81f3071a39989cb34d4cb655046748bda60d6b03b7d49b06563bb7f4f3febf` |
+
+- **Live acceptance.** Worker and Lead both verified `/proc/<pid>/exe`, old
+  target process exit, relay `/healthz` (`ok=true`, `rate_limit_hits=0`,
+  `local_rate_limit_hits=0`, cooldown 0), Provider `/control/status`
+  (`state=ok`, `auth_state=authenticated`, `host_running=true`,
+  `completion_ready=true`), and all four `/readyz` responses (`200 ready`).
+  Lead readback observed `local_observe_calls=18`, `remote_chatgpt_calls=2`,
+  `ticks=18`, and Provider read/send limiter rejected/waited counters all zero.
+  These are point-in-time new-process observations, not long-duration 429
+  qualification.
+- **Preservation.** Wrapper tag `612d22617576b08d2b479ad80ea62988401cc4c2`
+  (sequence 160, published prerelease) was signature-verified and matched
+  the installed bytes before and after the authorized reinstall: SHA-256
+  `339ab995b4195b96b79213fd1655483bd77254a27906df8999822a558fe7ba0a`,
+  inode `528985` -> `1083461`. Upstream `releases/0.172.0-faf17b` remains
+  selected, both retained upstream executable digests and activation-state
+  digest are unchanged, and the protected `.codex`, legacy archive and both
+  ChatGPT profile directory identities are unchanged (metadata only, not a
+  recursive content attestation). Both target previous links select `313a3f74`;
+  all earlier 35 Provider and 21 Orch generation executable hashes were
+  retained, including `d2f70a01` and `ddd6a43b`. Unrelated Shell, Codex and
+  ChatGPT tunnel PIDs (`29378`, `17981`, `23247`) and MCP child PIDs
+  (`10771`, `18010`, `23446`) and their executable identities remained unchanged.
+- **Evidence.** Local gate receipts: `$PREFIX/tmp/c174223f-loop2-w4.86DrOq`;
+  signed CI receipts: `$PREFIX/tmp/f62ec6b1-signed-ci.S9A4dh`;
+  cutover receipts: `$PREFIX/tmp/f62ec6b1-cutover.dgZuA4` (`commands.tsv`,
+  `cutover.exit`, `install.log`, `pre.json`, `post.json`, `pre-health.json`,
+  `post-health.json`, `post.log`, signed Wrapper evidence). Work completion
+  requires a separate final receipt binding; the live acceptance recorded
+  here does not claim that formal final verdict in advance.
 
 ### 2026-11-28 — Signed stabilization & simplification rollout (`313a3f74`)
 
