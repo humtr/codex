@@ -42,6 +42,15 @@ AppHost selected `26.1120.50957`; Provider health/status reports `ok=true`,
 The earlier local E01/Thin Option B activation is historical, not the active
 route. This refresh did not independently requalify unmodified components.
 
+**Targeted refresh (2026-11-28):** Provider and Orch now select the signed
+`0.1.0-e6f24ca2` generations (sequences `62` and `33`). The running Provider,
+relay and Orch MCP child match their signed binaries. Both `previous` links
+now select the immediate predecessor `0.1.0-449b061c`; the earlier
+`0.1.0-71078da1` rollback generations remain on disk with identical executable
+digests. Wrapper bytes, upstream activation state, protected directory
+identities and the three unrelated tunnel processes were preserved. See the
+2026-11-28 cutover receipt below.
+
 ### Unverified / Remaining Boundaries
 
 - **Provider presentation Phase 1 (2026-11-27).** The signed Phase 1
@@ -84,6 +93,51 @@ route. This refresh did not independently requalify unmodified components.
 ---
 
 ## Recent Verified Evidence (Newest-First)
+
+### 2026-11-28 — Signed relay-owned orchestration and Provider admission limits
+
+- **Source and publication.** `e6f24ca2f682417f69af77838ae2fc9bc00f1fd3`
+  moved owner calls out of MCP request handling. MCP persists requests and
+  exposes operation receipts. Relay owns remote dispatch and cooldown. The
+  Provider applies shared request budgets and signals relay on tracked turn
+  settlement. Both signed workflows succeeded. Independent readback verified
+  the peeled tags, stable release metadata, Ed25519 manifests and downloaded
+  archive digests. [Provider run 46087532939](https://github.com/humtr/codex/actions/runs/46087532939)
+  · [Orch run 46087532413](https://github.com/humtr/codex/actions/runs/46087532413)
+- **Local gates.** Both workspaces passed formatting and locked Clippy with
+  warnings denied. Both umasks, `0022` and `0077`, passed 28 Orch tests and
+  93 Provider Rust tests per run. The existing device-dependent Provider test
+  stayed ignored. All 20 page-driver tests and the tracked Markdown link
+  validation passed. Compiled fixtures covered blocked owner I/O, restart
+  without replay, authenticated wake requests and duplicate call IDs.
+- **Live cutover.** Stopped the Provider and both Orch services, used
+  `./install.sh --require-signed --release wrapper --components chatgpt-provider,termux-orch --skip-upstream --no-setup`,
+  and brought the three services up. Hashes of the running executables
+  through `/proc/<pid>/exe` matched the independently verified bundles.
+
+  | Running process | PID | Signed sequence | Executable SHA-256 |
+  | --- | ---: | ---: | --- |
+  | `chatgpt-provider` | 7972 | 62 | `08058c30ea75b324749a4b63656152ad97c64aed716e858cef86154f845d7384` |
+  | `termux-orch-relay` | 7974 | 33 | `fb6a5b9dc103f410d1278c1be29cc5082ba58bc32ec39063224aceb1cbf1199b` |
+  | `termux-orch` MCP child of tunnel PID 7973 | 7997 | 33 | `fb6a5b9dc103f410d1278c1be29cc5082ba58bc32ec39063224aceb1cbf1199b` |
+
+- **Live readback.** Provider `/control/status` reported authenticated,
+  `completion_ready=true` and the configured `rate_limiter` (read 5 burst,
+  0.5/s, 25/minute and send 3 burst, 0.2/s, 10/minute). One direct project
+  lookup returned the same ID and name as the list entry. Relay `/healthz`
+  reported `ok=true`, `rate_limit_hits=0`, `local_rate_limit_hits=0` and no
+  tick errors at observation. All four MCP tunnels returned `200 ready`.
+- **Preservation and scope.** The installer replaced the Wrapper executable
+  with identical signed bytes (SHA-256
+  `339ab995b4195b96b79213fd1655483bd77254a27906df8999822a558fe7ba0a`).
+  The upstream active `0.172.0-faf17b` and rollback `0.171.0-d8c43b-2`
+  remained in the same activation record. Unrelated tunnel PID and start
+  identities and the legacy archive, Codex home and AppHost profile directory
+  identities matched their preflight values. Existing rollback generation
+  files were retained. This rollout exercised authenticated reads and live
+  service readiness. Model dispatch, a live completed-turn wake, and
+  rate-limit rejection under production traffic remain unverified on the
+  running generation.
 
 ### 2026-11-27 — Signed `front_marker` 429 storm & early `sendMessage` cooldown fix
 
