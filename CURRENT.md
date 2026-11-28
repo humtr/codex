@@ -43,13 +43,12 @@ The earlier local E01/Thin Option B activation is historical, not the active
 route. This refresh did not independently requalify unmodified components.
 
 **Targeted refresh (2026-11-28):** Provider and Orch now select the signed
-`0.1.0-e6f24ca2` generations (sequences `62` and `33`). The running Provider,
-relay and Orch MCP child match their signed binaries. Both `previous` links
-now select the immediate predecessor `0.1.0-449b061c`; the earlier
-`0.1.0-71078da1` rollback generations remain on disk with identical executable
-digests. Wrapper bytes, upstream activation state, protected directory
-identities and the three unrelated tunnel processes were preserved. See the
-2026-11-28 cutover receipt below.
+`0.1.0-4a030b2f` generations (sequences `64` and `35`). The running Provider
+(`30670`), relay (`30668`) and Orch MCP child (`30693`, tunnel `30669`) match
+their signed binaries. Both `previous` links now select `0.1.0-e6f24ca2`.
+Wrapper bytes, upstream activation state, protected directory identities and
+the three unrelated tunnel processes were preserved. See the 2026-11-28
+cutover receipts below.
 
 ### Unverified / Remaining Boundaries
 
@@ -93,6 +92,36 @@ identities and the three unrelated tunnel processes were preserved. See the
 ---
 
 ## Recent Verified Evidence (Newest-First)
+
+### 2026-11-28 — Signed MCP short-wait, pre-validation, receipt pruning, and brief Provider pacing
+
+- **Source and publication.** `4a030b2f` added bounded MCP short-wait (up to
+  3.5s after a live relay accepts `/wake`, falling back to `queued`/`processing`),
+  local pre-validation before `requests/pending/` admission, newest-512 pruning
+  on `requests/finished/`, and single-pass brief admission pacing (`<= 1500ms`,
+  waiter cap `< 4`, `waited` counter) in `providers/chatgpt/src/page_driver.js`,
+  with normative updates in [docs/spec/ORCHESTRATION.md](docs/spec/ORCHESTRATION.md).
+  Both signed workflows passed: [Provider run 46096668824](https://github.com/humtr/codex/actions/runs/46096668824)
+  · [Orch run 46096671657](https://github.com/humtr/codex/actions/runs/46096671657).
+- **Local gates.** `mcp/termux-orch` and `providers/chatgpt` passed `cargo fmt --check`,
+  locked `clippy --all-targets -- -D warnings`, and both `umask 0022` and `0077`
+  `cargo test --locked` (Orch 13 unit + 17 E2E = 30 per umask; Provider Rust 93
+  pass + 1 ignored per umask), `node --test providers/chatgpt/tests/page_driver.test.mjs`
+  (21/21), and `.github/scripts/check_doc_links.py` (24 tracked documents).
+- **Live cutover.** Installed via `./install.sh --require-signed --release wrapper --components chatgpt-provider,termux-orch --skip-upstream --no-setup`
+  after stopping the three target services; `previous` retains `0.1.0-e6f24ca2`.
+
+  | Running process | PID | Signed sequence | Executable SHA-256 |
+  | --- | ---: | ---: | --- |
+  | `chatgpt-provider` | 30670 | 64 | `b3772cc9a64600cbed0b162f5e07b78d4ce5edb82d475773b60774a5db229b07` |
+  | `termux-orch-relay` | 30668 | 35 | `f56ba832b89ac13bf2126630812a9fea7d7f39c6eeae51ce839ecce0ec5a5ece` |
+  | `termux-orch` MCP child (tunnel `30669`) | 30693 | 35 | `f56ba832b89ac13bf2126630812a9fea7d7f39c6eeae51ce839ecce0ec5a5ece` |
+
+  All `/proc/<pid>/exe` digests match installed signed binaries; Provider
+  `/control/status` reports `auth_state=authenticated`, `completion_ready=true`,
+  `pinned_send=true`, `rate_limiter.{read,send}.waited=0`; relay `/healthz`
+  reports `ok=true`, `rate_limit_hits=0`, `local_rate_limit_hits=0`; all 4 MCP
+  tunnels report `200 ready`.
 
 ### 2026-11-28 — Signed relay-owned orchestration and Provider admission limits
 
