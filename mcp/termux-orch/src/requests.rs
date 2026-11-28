@@ -52,6 +52,7 @@ impl Requests {
         ensure_private_dir(&root.join("pending"))?;
         ensure_private_dir(&root.join("finished"))?;
         ensure_private_dir(&root.join("tombstones"))?;
+        fs::File::open(&root)?.sync_all()?;
         Ok(Self { root })
     }
 
@@ -358,6 +359,10 @@ impl Requests {
         let mut removed = 0usize;
         let mut first_error: Option<io::Error> = None;
 
+        // Ensure the parent `requests/` directory entry for `tombstones/` is durable
+        // on disk BEFORE unlinking any full receipts from `finished/`.
+        fs::File::open(&self.root)?.sync_all()?;
+
         for (prefix, shard_victims) in by_shard {
             let mut shard = match self.load_tombstone_shard(&prefix) {
                 Ok(s) => s,
@@ -621,6 +626,36 @@ mod tests {
                 "{replay}"
             );
         }
+
+        // Legacy tombstones.json fallback remains readable and fail-closed.
+        let legacy_call_id = "legacy-tombstone-call-1";
+        let legacy_args = json!({
+            "action": "rename_session",
+            "arguments": {"backend":"chatgpt","ref_id":"c1","title":"Legacy","call_id":legacy_call_id}
+        });
+        let legacy_id = sha256_hex(legacy_call_id.as_bytes());
+        let legacy_fp = sha256_hex(json!(["orch_call", legacy_args]).to_string().as_bytes());
+        let mut legacy_map = BTreeMap::new();
+        legacy_map.insert(
+            legacy_id.clone(),
+            Tombstone {
+                fingerprint: legacy_fp,
+                original_state: Some("ok".to_owned()),
+                submitted_at: 100,
+            },
+        );
+        write_atomic_private(
+            &reqs.legacy_tombstones_path(),
+            &serde_json::to_vec(&legacy_map).unwrap(),
+        )
+        .unwrap();
+        let legacy_replay = reqs.submit("orch_call", &legacy_args, || None).unwrap();
+        assert_eq!(
+            legacy_replay["error"], "orch_operation_receipt_expired",
+            "{legacy_replay}"
+        );
+        assert_eq!(reqs.status(&legacy_id).unwrap()["state"], "expired");
+
         let _ = fs::remove_dir_all(&root);
     }
 }
