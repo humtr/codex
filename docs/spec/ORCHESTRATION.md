@@ -290,9 +290,12 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
   otherwise `state=queued` or `processing` includes an `operation_id`.
   `orch_call(operation_status)` reads that operation's local receipt.
   `processing` means relay claimed the request. Settled operation receipts are
-  amortized-pruned to the newest 512 full files while retaining durable
-  fail-closed tombstones (`orch_operation_receipt_expired` / payload conflict)
-  so pruned `call_id`s never silently re-execute. A receipt can include a
+  amortized-pruned every 32 completions to the newest 512 full files while
+  retaining permanent sharded fail-closed tombstones
+  (`requests/tombstones/<2-hex-prefix>.json`, never evicted; shard size
+  overflow fails closed before unlinking full receipts;
+  `orch_operation_receipt_expired` / payload conflict) so pruned `call_id`s
+  never silently re-execute. A receipt can include a
   Work-level `pending` result for owner reconciliation. Retrying an identical
   call ID retrieves the original receipt. A conflicting payload is rejected.
   Follow-up dispatch, Wait-Set registration and reporting use the authoritative

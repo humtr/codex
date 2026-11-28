@@ -7,14 +7,16 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_RECORD_BYTES: usize = 1024 * 1024;
 const MAX_QUEUED: usize = 128;
 const MAX_FINISHED_RECORDS: usize = 512;
 const PRUNE_BATCH: usize = 32;
-const MAX_TOMBSTONES: usize = 4096;
 const VALID_TOOLS: &[&str] = &["orch_work", "orch_works", "orch_dispatch", "orch_call"];
+
+static COMPLETIONS_SINCE_PRUNE: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Tombstone {
@@ -49,6 +51,7 @@ impl Requests {
         ensure_private_dir(&root)?;
         ensure_private_dir(&root.join("pending"))?;
         ensure_private_dir(&root.join("finished"))?;
+        ensure_private_dir(&root.join("tombstones"))?;
         Ok(Self { root })
     }
 
@@ -60,27 +63,53 @@ impl Requests {
         self.root.join("finished").join(id)
     }
 
-    fn tombstones_path(&self) -> PathBuf {
+    fn tombstone_shard_path(&self, prefix: &str) -> PathBuf {
+        self.root.join("tombstones").join(format!("{prefix}.json"))
+    }
+
+    fn legacy_tombstones_path(&self) -> PathBuf {
         self.root.join("tombstones.json")
     }
 
-    fn load_tombstones(&self) -> io::Result<BTreeMap<String, Tombstone>> {
-        match read_private_file(&self.tombstones_path(), MAX_RECORD_BYTES as u64) {
+    fn load_tombstone_shard(&self, prefix: &str) -> io::Result<BTreeMap<String, Tombstone>> {
+        match read_private_file(&self.tombstone_shard_path(prefix), MAX_RECORD_BYTES as u64) {
             Ok(bytes) => serde_json::from_slice(&bytes).map_err(io::Error::other),
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(BTreeMap::new()),
             Err(e) => Err(e),
         }
     }
 
-    fn save_tombstones(&self, map: &BTreeMap<String, Tombstone>) -> io::Result<()> {
+    fn save_tombstone_shard(
+        &self,
+        prefix: &str,
+        map: &BTreeMap<String, Tombstone>,
+        max_bytes: usize,
+    ) -> io::Result<()> {
         let bytes = serde_json::to_vec(map).map_err(io::Error::other)?;
-        if bytes.len() > MAX_RECORD_BYTES {
+        if bytes.len() > max_bytes {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                "tombstone index exceeds size limit",
+                format!("tombstone shard {prefix} exceeds size limit ({max_bytes} bytes)"),
             ));
         }
-        write_atomic_private(&self.tombstones_path(), &bytes)
+        write_atomic_private(&self.tombstone_shard_path(prefix), &bytes)
+    }
+
+    fn find_tombstone(&self, id: &str) -> io::Result<Option<Tombstone>> {
+        let prefix = &id[..2];
+        if let Some(tombstone) = self.load_tombstone_shard(prefix)?.remove(id) {
+            return Ok(Some(tombstone));
+        }
+        // Backward-compatible read fallback for any pre-sharding tombstones.json.
+        match read_private_file(&self.legacy_tombstones_path(), MAX_RECORD_BYTES as u64) {
+            Ok(bytes) => {
+                let mut legacy: BTreeMap<String, Tombstone> =
+                    serde_json::from_slice(&bytes).map_err(io::Error::other)?;
+                Ok(legacy.remove(id))
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e),
+        }
     }
 
     fn load(&self, id: &str) -> io::Result<Option<Operation>> {
@@ -120,7 +149,7 @@ impl Requests {
             }
             return Ok(record.response(&id, true));
         }
-        if let Some(tombstone) = self.load_tombstones()?.get(&id) {
+        if let Some(tombstone) = self.find_tombstone(&id)? {
             if tombstone.fingerprint != fingerprint {
                 return Ok(
                     json!({"state":"rejected","executed":false,"error":"orch_call_id_payload_conflict"}),
@@ -171,7 +200,7 @@ impl Requests {
         if let Some(record) = self.load(id)? {
             return Ok(record.response(id, false));
         }
-        if let Some(tombstone) = self.load_tombstones()?.get(id) {
+        if let Some(tombstone) = self.find_tombstone(id)? {
             return Ok(json!({
                 "state": "expired",
                 "operation_id": id,
@@ -233,17 +262,22 @@ impl Requests {
             fs::rename(&path, self.finished(&id))?;
             fs::File::open(self.root.join("finished"))?.sync_all()?;
             fs::File::open(self.root.join("pending"))?.sync_all()?;
-            if let Err(error) =
-                self.prune_finished_locked(MAX_FINISHED_RECORDS, MAX_FINISHED_RECORDS + PRUNE_BATCH)
-            {
-                eprintln!(
-                    "{}",
-                    json!({
-                        "component": "termux-orch-relay",
-                        "event": "requests_finished_prune_failed",
-                        "error": error.to_string()
-                    })
-                );
+            let completed = COMPLETIONS_SINCE_PRUNE.fetch_add(1, Ordering::AcqRel);
+            if completed.is_multiple_of(PRUNE_BATCH) {
+                if let Err(error) = self.prune_finished_locked(
+                    MAX_FINISHED_RECORDS,
+                    MAX_FINISHED_RECORDS + PRUNE_BATCH,
+                    MAX_RECORD_BYTES,
+                ) {
+                    eprintln!(
+                        "{}",
+                        json!({
+                            "component": "termux-orch-relay",
+                            "event": "requests_finished_prune_failed",
+                            "error": error.to_string()
+                        })
+                    );
+                }
             }
         }
         Ok(())
@@ -251,11 +285,25 @@ impl Requests {
 
     #[cfg(test)]
     pub(crate) fn prune_finished(&self, keep: usize) -> io::Result<usize> {
-        let _lock = self.admission_lock()?;
-        self.prune_finished_locked(keep, keep)
+        self.prune_finished_with_shard_limit(keep, MAX_RECORD_BYTES)
     }
 
-    fn prune_finished_locked(&self, keep: usize, trigger_threshold: usize) -> io::Result<usize> {
+    #[cfg(test)]
+    pub(crate) fn prune_finished_with_shard_limit(
+        &self,
+        keep: usize,
+        max_shard_bytes: usize,
+    ) -> io::Result<usize> {
+        let _lock = self.admission_lock()?;
+        self.prune_finished_locked(keep, keep, max_shard_bytes)
+    }
+
+    fn prune_finished_locked(
+        &self,
+        keep: usize,
+        trigger_threshold: usize,
+        max_shard_bytes: usize,
+    ) -> io::Result<usize> {
         let dir = self.root.join("finished");
         let mut names: Vec<(String, PathBuf)> = Vec::new();
         for entry in fs::read_dir(&dir)? {
@@ -296,58 +344,92 @@ impl Requests {
             .map(|(_, id, path)| (id, path))
             .collect();
 
-        // Persist durable fail-closed tombstones BEFORE unlinking pruned receipts.
-        let mut tombstones = self.load_tombstones()?;
-        let now_us = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_micros()
-            .min(u128::from(u64::MAX)) as u64;
-        for (id, path) in &victims {
-            if let Some(record) = read_record(path)? {
-                let original_state = record
-                    .result
-                    .as_ref()
-                    .and_then(|r| r.get("state"))
-                    .and_then(Value::as_str)
-                    .map(ToOwned::to_owned);
-                tombstones.insert(
-                    id.clone(),
-                    Tombstone {
-                        fingerprint: record.fingerprint,
-                        original_state,
-                        submitted_at: record.submitted_at,
-                    },
-                );
-            } else {
-                tombstones.entry(id.clone()).or_insert(Tombstone {
-                    fingerprint: String::new(),
-                    original_state: None,
-                    submitted_at: now_us,
-                });
-            }
+        // Group victims by 2-hex prefix and persist permanent sharded tombstones
+        // BEFORE unlinking full receipts. Never evict tombstones; fail closed on
+        // shard overflow so full receipts stay intact on disk.
+        let mut by_shard: BTreeMap<String, Vec<(String, PathBuf)>> = BTreeMap::new();
+        for (id, path) in victims {
+            by_shard
+                .entry(id[..2].to_owned())
+                .or_default()
+                .push((id, path));
         }
-        if tombstones.len() > MAX_TOMBSTONES {
-            let mut order: Vec<(u64, String)> = tombstones
-                .iter()
-                .map(|(k, v)| (v.submitted_at, k.clone()))
-                .collect();
-            order.sort_unstable();
-            let drop_n = tombstones.len() - MAX_TOMBSTONES;
-            for (_, k) in order.into_iter().take(drop_n) {
-                tombstones.remove(&k);
-            }
-        }
-        self.save_tombstones(&tombstones)?;
 
         let mut removed = 0usize;
-        for (_, path) in victims {
-            if fs::remove_file(path).is_ok() {
-                removed += 1;
+        let mut first_error: Option<io::Error> = None;
+
+        for (prefix, shard_victims) in by_shard {
+            let mut shard = match self.load_tombstone_shard(&prefix) {
+                Ok(s) => s,
+                Err(err) => {
+                    if first_error.is_none() {
+                        first_error = Some(err);
+                    }
+                    continue;
+                }
+            };
+            let mut prepared: Vec<PathBuf> = Vec::with_capacity(shard_victims.len());
+            let mut read_failed = false;
+            for (id, path) in shard_victims {
+                match read_record(&path) {
+                    Ok(Some(record)) => {
+                        let original_state = record
+                            .result
+                            .as_ref()
+                            .and_then(|r| r.get("state"))
+                            .and_then(Value::as_str)
+                            .map(ToOwned::to_owned);
+                        shard.insert(
+                            id,
+                            Tombstone {
+                                fingerprint: record.fingerprint,
+                                original_state,
+                                submitted_at: record.submitted_at,
+                            },
+                        );
+                        prepared.push(path);
+                    }
+                    Ok(None) => {}
+                    Err(err) => {
+                        if first_error.is_none() {
+                            first_error = Some(err);
+                        }
+                        read_failed = true;
+                        break;
+                    }
+                }
+            }
+            if read_failed || prepared.is_empty() {
+                continue;
+            }
+            if let Err(err) = self.save_tombstone_shard(&prefix, &shard, max_shard_bytes) {
+                // Fail closed: do NOT unlink full receipts if shard persistence failed.
+                if first_error.is_none() {
+                    first_error = Some(err);
+                }
+                continue;
+            }
+            for path in prepared {
+                match fs::remove_file(&path) {
+                    Ok(()) => removed += 1,
+                    Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+                    Err(err) => {
+                        if first_error.is_none() {
+                            first_error = Some(err);
+                        }
+                    }
+                }
             }
         }
         if removed > 0 {
-            let _ = fs::File::open(&dir).and_then(|f| f.sync_all());
+            if let Err(err) = fs::File::open(&dir).and_then(|f| f.sync_all()) {
+                if first_error.is_none() {
+                    first_error = Some(err);
+                }
+            }
+        }
+        if let Some(err) = first_error {
+            return Err(err);
         }
         Ok(removed)
     }
@@ -480,6 +562,65 @@ mod tests {
         assert_eq!(remaining, 3);
         assert_eq!(expired, 5);
         assert!(keep_note.exists());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn prune_shard_overflow_fails_closed_without_unlinking_receipts_and_never_evicts() {
+        let root = std::env::temp_dir().join(format!(
+            "termux-orch-req-shard-cap-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        let ledger = Ledger::open(root.join("state")).unwrap();
+        let reqs = Requests::open(&ledger).unwrap();
+        let mut records = Vec::new();
+        for i in 0..4u64 {
+            let call_id = format!("cap-call-{i}");
+            let args = json!({
+                "action": "rename_session",
+                "arguments": {"backend":"chatgpt","ref_id":"c1","title":format!("C{i}"),"call_id":call_id}
+            });
+            let id = sha256_hex(call_id.as_bytes());
+            let fp = sha256_hex(json!(["orch_call", args]).to_string().as_bytes());
+            let record = Operation {
+                fingerprint: fp,
+                submitted_at: 2000 + i,
+                request: None,
+                started: true,
+                result: Some(json!({"state": "ok", "idx": i})),
+            };
+            write_record(&reqs.finished(&id), &record).unwrap();
+            records.push((id, args));
+        }
+
+        // Tiny shard limit (16 bytes) forces shard overflow -> must return Err and keep all full receipts intact!
+        let err = reqs.prune_finished_with_shard_limit(1, 16).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+        for (id, args) in &records {
+            assert!(
+                reqs.finished(id).exists(),
+                "full receipt {id} must NOT be unlinked when shard save fails"
+            );
+            let replay = reqs.submit("orch_call", args, || None).unwrap();
+            assert_eq!(replay["state"], "ok");
+            assert_eq!(replay["replayed_from_receipt"], true);
+        }
+
+        // With normal shard limit, consecutive prune rounds retain ALL tombstones without eviction.
+        assert_eq!(reqs.prune_finished(2).unwrap(), 2);
+        assert_eq!(reqs.prune_finished(0).unwrap(), 2);
+        for (id, args) in &records {
+            assert!(!reqs.finished(id).exists());
+            let replay = reqs.submit("orch_call", args, || None).unwrap();
+            assert_eq!(
+                replay["error"], "orch_operation_receipt_expired",
+                "{replay}"
+            );
+        }
         let _ = fs::remove_dir_all(&root);
     }
 }
