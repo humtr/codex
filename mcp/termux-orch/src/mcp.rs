@@ -39,7 +39,7 @@ pub use schema::build_static_tools;
 pub use schema::STATIC_TOOL_NAMES;
 
 const DEFAULT_SHORT_WAIT_MS: u64 = 3500;
-const MAX_SHORT_WAIT_MS: u64 = 5000;
+const MAX_SHORT_WAIT_MS: u64 = 3500;
 
 pub(super) const WORKS_ALLOWED_KEYS: &[&str] = &[
     "action",
@@ -346,8 +346,15 @@ impl OrchMcpHandler {
                     if let Ok(requests) = crate::requests::Requests::open(&self.ledger) {
                         let deadline = std::time::Instant::now() + max_wait;
                         let mut sleep_ms = 50u64;
-                        while std::time::Instant::now() < deadline {
-                            std::thread::sleep(std::time::Duration::from_millis(sleep_ms));
+                        loop {
+                            let remaining =
+                                deadline.saturating_duration_since(std::time::Instant::now());
+                            if remaining.is_zero() {
+                                break;
+                            }
+                            std::thread::sleep(
+                                std::time::Duration::from_millis(sleep_ms).min(remaining),
+                            );
                             sleep_ms = (sleep_ms + 50).min(100);
                             if let Ok(status) = requests.status(op_id) {
                                 if !matches!(

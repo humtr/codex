@@ -3,6 +3,7 @@ use crate::ledger::{ensure_private_dir, read_private_file, write_atomic_private,
 use mcp_kit::{sha256_hex, validate_call_id};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -11,7 +12,17 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const MAX_RECORD_BYTES: usize = 1024 * 1024;
 const MAX_QUEUED: usize = 128;
 const MAX_FINISHED_RECORDS: usize = 512;
+const PRUNE_BATCH: usize = 32;
+const MAX_TOMBSTONES: usize = 4096;
 const VALID_TOOLS: &[&str] = &["orch_work", "orch_works", "orch_dispatch", "orch_call"];
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Tombstone {
+    fingerprint: String,
+    #[serde(default)]
+    original_state: Option<String>,
+    submitted_at: u64,
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Operation {
@@ -47,6 +58,29 @@ impl Requests {
 
     fn finished(&self, id: &str) -> PathBuf {
         self.root.join("finished").join(id)
+    }
+
+    fn tombstones_path(&self) -> PathBuf {
+        self.root.join("tombstones.json")
+    }
+
+    fn load_tombstones(&self) -> io::Result<BTreeMap<String, Tombstone>> {
+        match read_private_file(&self.tombstones_path(), MAX_RECORD_BYTES as u64) {
+            Ok(bytes) => serde_json::from_slice(&bytes).map_err(io::Error::other),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(BTreeMap::new()),
+            Err(e) => Err(e),
+        }
+    }
+
+    fn save_tombstones(&self, map: &BTreeMap<String, Tombstone>) -> io::Result<()> {
+        let bytes = serde_json::to_vec(map).map_err(io::Error::other)?;
+        if bytes.len() > MAX_RECORD_BYTES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "tombstone index exceeds size limit",
+            ));
+        }
+        write_atomic_private(&self.tombstones_path(), &bytes)
     }
 
     fn load(&self, id: &str) -> io::Result<Option<Operation>> {
@@ -86,6 +120,21 @@ impl Requests {
             }
             return Ok(record.response(&id, true));
         }
+        if let Some(tombstone) = self.load_tombstones()?.get(&id) {
+            if tombstone.fingerprint != fingerprint {
+                return Ok(
+                    json!({"state":"rejected","executed":false,"error":"orch_call_id_payload_conflict"}),
+                );
+            }
+            return Ok(json!({
+                "state": "rejected",
+                "executed": "unknown",
+                "error": "orch_operation_receipt_expired",
+                "operation_id": id,
+                "replayed_from_receipt": true,
+                "original_state": tombstone.original_state,
+            }));
+        }
         if let Some(receipt) = existing() {
             return Ok(receipt);
         }
@@ -119,10 +168,17 @@ impl Requests {
         if !valid_id(id) {
             return Err(invalid_id());
         }
-        Ok(self.load(id)?.map_or_else(
-            || json!({"state":"not_found","operation_id":id}),
-            |record| record.response(id, false),
-        ))
+        if let Some(record) = self.load(id)? {
+            return Ok(record.response(id, false));
+        }
+        if let Some(tombstone) = self.load_tombstones()?.get(id) {
+            return Ok(json!({
+                "state": "expired",
+                "operation_id": id,
+                "original_state": tombstone.original_state,
+            }));
+        }
+        Ok(json!({"state":"not_found","operation_id":id}))
     }
 
     fn pending_paths(&self) -> io::Result<Vec<(String, Operation)>> {
@@ -177,7 +233,18 @@ impl Requests {
             fs::rename(&path, self.finished(&id))?;
             fs::File::open(self.root.join("finished"))?.sync_all()?;
             fs::File::open(self.root.join("pending"))?.sync_all()?;
-            let _ = self.prune_finished_locked(MAX_FINISHED_RECORDS);
+            if let Err(error) =
+                self.prune_finished_locked(MAX_FINISHED_RECORDS, MAX_FINISHED_RECORDS + PRUNE_BATCH)
+            {
+                eprintln!(
+                    "{}",
+                    json!({
+                        "component": "termux-orch-relay",
+                        "event": "requests_finished_prune_failed",
+                        "error": error.to_string()
+                    })
+                );
+            }
         }
         Ok(())
     }
@@ -185,45 +252,96 @@ impl Requests {
     #[cfg(test)]
     pub(crate) fn prune_finished(&self, keep: usize) -> io::Result<usize> {
         let _lock = self.admission_lock()?;
-        self.prune_finished_locked(keep)
+        self.prune_finished_locked(keep, keep)
     }
 
-    fn prune_finished_locked(&self, keep: usize) -> io::Result<usize> {
+    fn prune_finished_locked(&self, keep: usize, trigger_threshold: usize) -> io::Result<usize> {
         let dir = self.root.join("finished");
-        let mut entries: Vec<(u64, String, PathBuf)> = Vec::new();
+        let mut names: Vec<(String, PathBuf)> = Vec::new();
         for entry in fs::read_dir(&dir)? {
             let entry = entry?;
             let id = entry.file_name().to_string_lossy().into_owned();
-            if !valid_id(&id) {
-                continue;
+            if valid_id(&id) {
+                names.push((id, entry.path()));
             }
-            let path = entry.path();
+        }
+        if names.len() <= trigger_threshold {
+            return Ok(0);
+        }
+        // Only inspect symlink_metadata (no full JSON reads on retained receipts).
+        let mut entries: Vec<(u128, String, PathBuf)> = Vec::with_capacity(names.len());
+        for (id, path) in names {
             let Ok(meta) = fs::symlink_metadata(&path) else {
                 continue;
             };
             if !meta.file_type().is_file() {
                 continue;
             }
-            let ts = read_record(&path)
+            let mtime_ns = meta
+                .modified()
                 .ok()
-                .flatten()
-                .map(|record| record.submitted_at)
-                .unwrap_or_else(|| {
-                    meta.modified()
-                        .ok()
-                        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                        .map(|d| d.as_micros().min(u128::from(u64::MAX)) as u64)
-                        .unwrap_or(0)
-                });
-            entries.push((ts, id, path));
+                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                .map(|d| d.as_nanos())
+                .unwrap_or(0);
+            entries.push((mtime_ns, id, path));
         }
         if entries.len() <= keep {
             return Ok(0);
         }
         entries.sort_unstable_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
         let remove_count = entries.len() - keep;
+        let victims: Vec<(String, PathBuf)> = entries
+            .into_iter()
+            .take(remove_count)
+            .map(|(_, id, path)| (id, path))
+            .collect();
+
+        // Persist durable fail-closed tombstones BEFORE unlinking pruned receipts.
+        let mut tombstones = self.load_tombstones()?;
+        let now_us = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_micros()
+            .min(u128::from(u64::MAX)) as u64;
+        for (id, path) in &victims {
+            if let Some(record) = read_record(path)? {
+                let original_state = record
+                    .result
+                    .as_ref()
+                    .and_then(|r| r.get("state"))
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned);
+                tombstones.insert(
+                    id.clone(),
+                    Tombstone {
+                        fingerprint: record.fingerprint,
+                        original_state,
+                        submitted_at: record.submitted_at,
+                    },
+                );
+            } else {
+                tombstones.entry(id.clone()).or_insert(Tombstone {
+                    fingerprint: String::new(),
+                    original_state: None,
+                    submitted_at: now_us,
+                });
+            }
+        }
+        if tombstones.len() > MAX_TOMBSTONES {
+            let mut order: Vec<(u64, String)> = tombstones
+                .iter()
+                .map(|(k, v)| (v.submitted_at, k.clone()))
+                .collect();
+            order.sort_unstable();
+            let drop_n = tombstones.len() - MAX_TOMBSTONES;
+            for (_, k) in order.into_iter().take(drop_n) {
+                tombstones.remove(&k);
+            }
+        }
+        self.save_tombstones(&tombstones)?;
+
         let mut removed = 0usize;
-        for (_, _, path) in entries.into_iter().take(remove_count) {
+        for (_, path) in victims {
             if fs::remove_file(path).is_ok() {
                 removed += 1;
             }
@@ -297,19 +415,24 @@ mod tests {
         ));
         let ledger = Ledger::open(root.join("state")).unwrap();
         let reqs = Requests::open(&ledger).unwrap();
-        let mut ids = Vec::new();
+        let mut records = Vec::new();
         for i in 0..8u64 {
             let call_id = format!("prune-call-{i}");
+            let args = json!({
+                "action": "rename_session",
+                "arguments": {"backend":"chatgpt","ref_id":"c1","title":format!("T{i}"),"call_id":call_id}
+            });
             let id = sha256_hex(call_id.as_bytes());
+            let fp = sha256_hex(json!(["orch_call", args]).to_string().as_bytes());
             let record = Operation {
-                fingerprint: sha256_hex(format!("fp-{i}").as_bytes()),
+                fingerprint: fp,
                 submitted_at: 1000 + i,
                 request: None,
                 started: true,
                 result: Some(json!({"state": "ok", "idx": i})),
             };
             write_record(&reqs.finished(&id), &record).unwrap();
-            ids.push(id);
+            records.push((id, call_id, args));
         }
         // Unrelated non-hex filename must not be removed.
         let keep_note = reqs.root.join("finished").join("keep-note.txt");
@@ -317,18 +440,45 @@ mod tests {
 
         let removed = reqs.prune_finished(3).unwrap();
         assert_eq!(removed, 5);
-        for old in &ids[..5] {
-            assert!(
-                !reqs.finished(old).exists(),
-                "old receipt {old} should be pruned"
-            );
+        assert!(keep_note.exists());
+
+        let mut remaining = 0usize;
+        let mut expired = 0usize;
+        for (id, call_id, args) in &records {
+            if reqs.finished(id).exists() {
+                remaining += 1;
+                let replay = reqs.submit("orch_call", args, || None).unwrap();
+                assert_eq!(replay["state"], "ok", "{replay}");
+                assert_eq!(replay["replayed_from_receipt"], true);
+            } else {
+                expired += 1;
+                // Fail-closed replay on pruned call_id: never re-enqueues!
+                let replay = reqs.submit("orch_call", args, || None).unwrap();
+                assert_eq!(replay["state"], "rejected", "{replay}");
+                assert_eq!(
+                    replay["error"], "orch_operation_receipt_expired",
+                    "{replay}"
+                );
+                assert_eq!(replay["original_state"], "ok", "{replay}");
+                assert!(!reqs.pending(id).exists());
+                // Conflicting payload on pruned call_id is still rejected as conflict!
+                let conflict_args = json!({
+                    "action": "rename_session",
+                    "arguments": {"backend":"chatgpt","ref_id":"c1","title":"DIFFERENT","call_id":call_id}
+                });
+                let conflict = reqs.submit("orch_call", &conflict_args, || None).unwrap();
+                assert_eq!(
+                    conflict["error"], "orch_call_id_payload_conflict",
+                    "{conflict}"
+                );
+                // Status reports expired with original_state.
+                let st = reqs.status(id).unwrap();
+                assert_eq!(st["state"], "expired", "{st}");
+                assert_eq!(st["original_state"], "ok", "{st}");
+            }
         }
-        for recent in &ids[5..] {
-            assert!(
-                reqs.finished(recent).exists(),
-                "recent receipt {recent} should remain"
-            );
-        }
+        assert_eq!(remaining, 3);
+        assert_eq!(expired, 5);
         assert!(keep_note.exists());
         let _ = fs::remove_dir_all(&root);
     }

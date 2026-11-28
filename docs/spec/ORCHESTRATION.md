@@ -285,22 +285,25 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
 - **Asynchronous owner operations.** The MCP process validates obvious local
   argument errors before enqueuing and durably accepts Work creation, promotion,
   Front rebinding, model dispatch and session mutations that require an owner
-  call. After waking a live relay, MCP may short-wait briefly (up to 3.5s) and
-  return the settled receipt directly when complete; otherwise `state=queued`
-  or `processing` includes an `operation_id`. `orch_call(operation_status)`
-  reads that operation's local receipt. `processing` means relay claimed the
-  request. Settled operation receipts are pruned to the newest 512 entries. A
-  receipt can include a Work-level `pending` result for owner reconciliation.
-  Retrying an identical call ID retrieves the original receipt. A conflicting
-  payload is rejected. Follow-up dispatch, Wait-Set registration and reporting
-  use the authoritative IDs from the settled operation. Relay runs the owner
-  calls under one owner gate. It reports an interrupted execution as
-  `delivery_unknown` and reconciles any persisted Work intent without replaying
-  an uncertain mutation. Rename and manual rollover extension arguments
-  include a `call_id`. Local reports persist delivery and can request an
-  immediate relay wake. `reconcile_delivery` requests a wake and returns its
-  acceptance separately from delivery. Codex model launches check the selected
-  daemon and its authentication requirement before submitting a turn.
+  call. After waking a live relay, MCP may short-wait briefly (up to 3.5s,
+  strictly clamped) and return the settled receipt directly when complete;
+  otherwise `state=queued` or `processing` includes an `operation_id`.
+  `orch_call(operation_status)` reads that operation's local receipt.
+  `processing` means relay claimed the request. Settled operation receipts are
+  amortized-pruned to the newest 512 full files while retaining durable
+  fail-closed tombstones (`orch_operation_receipt_expired` / payload conflict)
+  so pruned `call_id`s never silently re-execute. A receipt can include a
+  Work-level `pending` result for owner reconciliation. Retrying an identical
+  call ID retrieves the original receipt. A conflicting payload is rejected.
+  Follow-up dispatch, Wait-Set registration and reporting use the authoritative
+  IDs from the settled operation. Relay runs the owner calls under one owner
+  gate. It reports an interrupted execution as `delivery_unknown` and
+  reconciles any persisted Work intent without replaying an uncertain mutation.
+  Rename and manual rollover extension arguments include a `call_id`. Local
+  reports persist delivery and can request an immediate relay wake.
+  `reconcile_delivery` requests a wake and returns its acceptance separately
+  from delivery. Codex model launches check the selected daemon and its
+  authentication requirement before submitting a turn.
 - **Provider admission and wake.** The AppHost page driver budgets reads
   (five burst, 0.5/s refill, 25 per rolling minute) and sends/writes (three
   burst, 0.2/s refill, ten per rolling minute). `/me` and stop are exempt.

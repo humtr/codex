@@ -505,9 +505,10 @@
       admitted.push(now);
       return null;
     };
-    const acquire = async () => {
+    const acquire = async (isCancelled = null) => {
       const { now, minuteWait, wait } = inspect();
       if (wait <= 0) {
+        if (isCancelled && isCancelled()) return { state: "stopped", cancelled: true };
         tokens--;
         admitted.push(now);
         return null;
@@ -520,6 +521,7 @@
         } finally {
           waiters--;
         }
+        if (isCancelled && isCancelled()) return { state: "stopped", cancelled: true };
         return take();
       }
       return reject(wait);
@@ -2270,7 +2272,12 @@
           false,
         );
       }
-      const limited = await sendBudget.acquire();
+      const limited = await sendBudget.acquire(() => turn.stopped);
+      if (turn.stopped || (limited && limited.cancelled)) {
+        turn.generating = false;
+        turn.resolveDone();
+        return { state: "stopped", lane_id: laneId };
+      }
       if (limited) {
         turn.error = { code: limited.error, detail: limited.text, retry_after: limited.retry_after };
         turn.resolveDone();
@@ -2281,6 +2288,11 @@
         turn.error = { code: "backend_http_429", detail: "Retry-After cooldown", retry_after: ra };
         turn.resolveDone();
         return { state: "error", error: "backend_http_429", detail: "Retry-After cooldown", retry_after: ra };
+      }
+      if (turn.stopped) {
+        turn.generating = false;
+        turn.resolveDone();
+        return { state: "stopped", lane_id: laneId };
       }
       dispatched = true;
       const handle = await client.startCompletionStream({

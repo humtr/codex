@@ -1588,3 +1588,43 @@ test("read admission paces brief partial-token shortage once, tracks waited, and
   assert.equal(st2.rate_limiter.read.waited, 5, "only 4 new waiters should be admitted");
   assert.ok(st2.rate_limiter.read.rejected >= 1);
 });
+
+test("stopGeneration during send pacing cancels before stream dispatch and consumes no send token", async () => {
+  let time = 100_000;
+  const { driver, startCalls } = createMockEnv({
+    now: () => time,
+    apiMap: { "GET /backend-api/me": { status: 200, body: { account_id: "fixture" } } },
+  });
+  for (let i = 0; i < 3; i++) {
+    assert.equal(
+      (await driver.sendMessage({ prompt: `s${i}`, lane_id: `lane-s-${i}`, wait_ms: 1000 })).state,
+      "settled",
+    );
+  }
+  assert.equal(startCalls.length, 3);
+
+  // Advance 4920ms so 80ms shortage remains (<= 1500ms pace window).
+  time += 4920;
+  const sendPromise = driver.sendMessage({
+    prompt: "cancel-during-pace",
+    lane_id: "lane-cancel-pace",
+    wait_ms: 1000,
+  });
+  // Trigger stop while sendMessage is awaiting sendBudget.acquire().
+  setTimeout(async () => {
+    await driver.stopGeneration({ lane_id: "lane-cancel-pace" });
+    time += 120;
+  }, 15);
+  const res = await sendPromise;
+  assert.equal(res.state, "stopped", JSON.stringify(res));
+  assert.equal(startCalls.length, 3, "cancelled paced send must not start completion stream");
+
+  // Token was NOT consumed by the cancelled send, so a fresh send now succeeds immediately!
+  const after = await driver.sendMessage({
+    prompt: "after-cancel",
+    lane_id: "lane-after-cancel",
+    wait_ms: 1000,
+  });
+  assert.equal(after.state, "settled", JSON.stringify(after));
+  assert.equal(startCalls.length, 4);
+});
