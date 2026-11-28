@@ -668,6 +668,25 @@ impl OrchMcpHandler {
                     .collect()
             })
             .unwrap_or_default();
+        if let Some(id) = all_of
+            .iter()
+            .chain(&any_of)
+            .find(|id| !work.participants.iter().any(|p| &p.participant_id == *id))
+        {
+            let known = work
+                .participants
+                .iter()
+                .map(|p| p.participant_id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            return (
+                fail(
+                    "unknown_participant_id",
+                    format!("Unknown participant_id '{id}'; known participant_ids: [{known}]"),
+                ),
+                false,
+            );
+        }
         let then_verify_shell = match obj.get("then_verify_shell") {
             Some(value) => match serde_json::from_value::<ShellContinuation>(value.clone()) {
                 Ok(next)
@@ -715,10 +734,7 @@ impl OrchMcpHandler {
                 || wake_target != "front"
                 || all_of.is_empty()
                 || !any_of.is_empty()
-                || on_user_event
-                || all_of
-                    .iter()
-                    .any(|id| !work.participants.iter().any(|p| &p.participant_id == id)))
+                || on_user_event)
         {
             return (
                 fail(

@@ -9,7 +9,7 @@ use crate::http_client::{
     LoopbackEndpoint,
 };
 use crate::ledger::now_unix;
-use codex_daemon_client::DaemonClient;
+use codex_daemon_client::{extract_item_text, DaemonClient};
 use serde_json::{json, Value};
 use std::env;
 use std::fs;
@@ -101,6 +101,7 @@ struct OwnerGate {
     chatgpt_cooldown_until_unix: AtomicU64,
     rate_limit_hits: AtomicU64,
     remote_chatgpt_calls: AtomicU64,
+    local_observe_calls: AtomicU64,
     local_rate_limit_hits: AtomicU64,
 }
 
@@ -161,6 +162,10 @@ impl OwnerClient {
         self.gate.remote_chatgpt_calls.load(Ordering::Acquire)
     }
 
+    pub fn local_observe_calls(&self) -> u64 {
+        self.gate.local_observe_calls.load(Ordering::Acquire)
+    }
+
     pub fn note_chatgpt_rate_limit(&self, retry_after_secs: u64, context: &str) {
         let secs = retry_after_secs.clamp(1, 600);
         let target = now_unix().saturating_add(secs);
@@ -209,9 +214,10 @@ impl OwnerClient {
         body: Option<&Value>,
         timeout: Duration,
     ) -> Result<Value, String> {
-        let exempt_from_cooldown = path.starts_with("/control/status?")
-            || path == "/control/stop"
-            || (path == "/control/observe" && body.is_some_and(|body| body["local_only"] == true));
+        let local_observe =
+            path == "/control/observe" && body.is_some_and(|body| body["local_only"] == true);
+        let exempt_from_cooldown =
+            path.starts_with("/control/status?") || path == "/control/stop" || local_observe;
         if !exempt_from_cooldown {
             let rem = self.chatgpt_cooldown_remaining_secs();
             if rem > 0 {
@@ -224,9 +230,12 @@ impl OwnerClient {
             }
         }
         let (ep, token) = self.resolve_provider()?;
-        self.gate
-            .remote_chatgpt_calls
-            .fetch_add(1, Ordering::AcqRel);
+        let counter = if local_observe {
+            &self.gate.local_observe_calls
+        } else {
+            &self.gate.remote_chatgpt_calls
+        };
+        counter.fetch_add(1, Ordering::AcqRel);
         let resp =
             request_json(&ep, method, path, Some(&token), body, timeout).map_err(|e| match e {
                 HttpClientError::Unavailable(c, d) | HttpClientError::Config(c, d) => {
@@ -912,31 +921,21 @@ fn codex_turn_evidence(thread: &Value, turn_id: Option<&str>) -> (Option<String>
         return (None, String::new());
     };
     let status = turn["status"].as_str().map(ToOwned::to_owned);
-    let mut result = String::new();
-    if let Some(items) = turn["items"].as_array() {
-        for item in items.iter().rev().filter(|item| {
+    let result = turn["items"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .rev()
+        .filter(|item| {
             matches!(
                 item["type"].as_str(),
                 Some("agentMessage" | "assistantMessage")
             )
-        }) {
-            if let Some(text) = item["text"].as_str().filter(|text| !text.trim().is_empty()) {
-                result = text.chars().take(2000).collect();
-                break;
-            }
-            if let Some(content) = item["content"].as_array() {
-                let joined = content
-                    .iter()
-                    .filter_map(|part| part["text"].as_str())
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                if !joined.trim().is_empty() {
-                    result = joined.chars().take(2000).collect();
-                    break;
-                }
-            }
-        }
-    }
+        })
+        .filter_map(|item| extract_item_text(item, |text| !text.trim().is_empty(), |_| true))
+        .find(|text| !text.trim().is_empty())
+        .map(|text| text.chars().take(2000).collect())
+        .unwrap_or_default();
     (status, result)
 }
 
@@ -986,6 +985,20 @@ mod tests {
         assert_eq!(params["effort"], "high");
         assert_eq!(params["approvalPolicy"], "never");
         assert!(params.get("model").is_none());
+    }
+
+    #[test]
+    fn codex_turn_evidence_uses_last_nonblank_agent_item_and_character_limit() {
+        let long = "한".repeat(2001);
+        let thread = json!({"turns":[{"id":"turn","status":"completed","items":[
+            {"type":"agentMessage","text":"old"},
+            {"type":"assistantMessage","text":" ","content":[{"text":""},{"text":long}]},
+            {"type":"agentMessage","text":" ","content":[{"text":" "}]},
+            {"type":"message","text":"ignored"}
+        ]}]});
+        let (status, text) = codex_turn_evidence(&thread, Some("turn"));
+        assert_eq!(status.as_deref(), Some("completed"));
+        assert_eq!(text, format!("\n{}", "한".repeat(1999)));
     }
 
     #[test]

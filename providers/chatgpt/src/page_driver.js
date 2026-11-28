@@ -944,11 +944,7 @@
     if (contentType === "thoughts" || contentType === "reasoning_recap") return null;
     if (role === "assistant" && (msg.channel === "analysis" ||
       !isVisibleAssistantMessage(msg))) return null;
-    const parts = Array.isArray(msg.content && msg.content.parts) ? msg.content.parts : [];
-    const text = parts
-      .filter((p) => typeof p === "string")
-      .join("\n")
-      .trim();
+    const text = (extractRawPartsText(msg) || "").trim();
     if (!text) return null;
     return {
       id: msg.id || null,
@@ -1450,26 +1446,17 @@
         generating: false,
       };
     }
-    if (rd.state === "ok" && Array.isArray(rd.messages)) {
-      const lastA = [...rd.messages].reverse().find((m) => m.role === "assistant");
-      return {
-        state: "settled",
-        ...(matchedTurn ? { lane_id: matchedTurn.laneId } : {}),
-        chat_id: chatId,
-        generating: false,
-        ...(remoteStreamStatus ? { remote_stream_status: remoteStreamStatus } : {}),
-        message_id: (lastA && lastA.id) || (matchedTurn && matchedTurn.messageId) || null,
-        assistant_text: (lastA && lastA.text) || (matchedTurn && matchedTurn.assistantText) || "",
-      };
-    }
+    const lastA = rd.state === "ok" && Array.isArray(rd.messages)
+      ? [...rd.messages].reverse().find((m) => m.role === "assistant")
+      : null;
     return {
       state: "settled",
       ...(matchedTurn ? { lane_id: matchedTurn.laneId } : {}),
       chat_id: chatId,
       generating: false,
       ...(remoteStreamStatus ? { remote_stream_status: remoteStreamStatus } : {}),
-      message_id: (matchedTurn && matchedTurn.messageId) || null,
-      assistant_text: (matchedTurn && matchedTurn.assistantText) || "",
+      message_id: (lastA && lastA.id) || (matchedTurn && matchedTurn.messageId) || null,
+      assistant_text: (lastA && lastA.text) || (matchedTurn && matchedTurn.assistantText) || "",
     };
   }
 

@@ -63,7 +63,8 @@ impl OrchMcpHandler {
                     "relay_reachable": health["ok"] == true,
                     "chatgpt_cooldown_remaining_secs": health["chatgpt_cooldown_remaining_secs"],
                     "rate_limit_hits": health["rate_limit_hits"],
-                    "remote_chatgpt_calls": health["remote_chatgpt_calls"]
+                    "remote_chatgpt_calls": health["remote_chatgpt_calls"],
+                    "local_observe_calls": health["local_observe_calls"]
                 })
             }
             "reconcile_delivery" => {

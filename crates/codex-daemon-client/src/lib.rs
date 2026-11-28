@@ -17,6 +17,27 @@ use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+/// Extract an item's direct text, or join its text content parts with newlines.
+/// The caller chooses whether direct text suppresses the fallback and which
+/// content parts to retain; item kind, turn selection and limits stay with it.
+pub fn extract_item_text(
+    item: &Value,
+    accept_direct: impl Fn(&str) -> bool,
+    accept_part: impl Fn(&str) -> bool,
+) -> Option<String> {
+    if let Some(text) = item["text"].as_str().filter(|text| accept_direct(text)) {
+        return Some(text.to_owned());
+    }
+    item["content"].as_array().map(|parts| {
+        parts
+            .iter()
+            .filter_map(|part| part["text"].as_str())
+            .filter(|text| accept_part(text))
+            .collect::<Vec<_>>()
+            .join("\n")
+    })
+}
+
 const MAX_WS_FRAME_BYTES: usize = 16 * 1024 * 1024;
 const MAX_HTTP_HEADER_BYTES: usize = 16 * 1024;
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -978,6 +999,30 @@ mod tests {
     use super::*;
     use std::os::unix::net::UnixListener;
     use std::thread;
+
+    #[test]
+    fn item_text_preserves_caller_fallback_and_part_policies() {
+        let item = json!({"text":"","content":[{"text":""},{"text":"first"},{"text":17},{"text":" "},{"text":"last"},{"text":""}]});
+        assert_eq!(
+            extract_item_text(&item, |_| true, |t| !t.is_empty()),
+            Some(String::new())
+        );
+        assert_eq!(
+            extract_item_text(&item, |t| !t.trim().is_empty(), |_| true),
+            Some("\nfirst\n \nlast\n".into())
+        );
+        let content = json!({"text":null,"content":item["content"]});
+        assert_eq!(
+            extract_item_text(&content, |_| true, |t| !t.is_empty()),
+            Some("first\n \nlast".into())
+        );
+        let direct = json!({"text":"  direct  ","content":[{"text":"ignored"}]});
+        assert_eq!(
+            extract_item_text(&direct, |t| !t.trim().is_empty(), |_| true),
+            Some("  direct  ".into())
+        );
+        assert_eq!(extract_item_text(&json!({}), |_| true, |_| true), None);
+    }
 
     fn temp_dir(prefix: &str) -> PathBuf {
         let nanos = SystemTime::now()

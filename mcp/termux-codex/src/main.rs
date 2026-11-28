@@ -6,7 +6,7 @@
 //! `codex_call` extension slots). Zero shadow task DB; independently retirable once
 //! official `codex remote-control` matures.
 
-use codex_daemon_client::{DaemonClient, DaemonError};
+use codex_daemon_client::{extract_item_text, DaemonClient, DaemonError};
 use mcp_kit::{
     serve_stdio, sha256_hex, validate_call_id, ExtensionRegistry, ExtensionSpec, McpHandler,
     ReceiptClaim, ReceiptStore, ToolDef,
@@ -427,28 +427,36 @@ fn truncate_chars(text: &str, max_chars: usize) -> (String, bool) {
 }
 
 fn extract_turn_assistant_text(turn: &Value) -> String {
-    let mut parts = Vec::new();
-    if let Some(items) = turn.get("items").and_then(Value::as_array) {
-        for item in items {
-            let kind = item.get("type").and_then(Value::as_str).unwrap_or("");
-            if matches!(kind, "agentMessage" | "assistantMessage" | "message") {
-                if let Some(t) = item.get("text").and_then(Value::as_str) {
-                    if !t.is_empty() {
-                        parts.push(t.to_owned());
-                    }
-                } else if let Some(content) = item.get("content").and_then(Value::as_array) {
-                    for c in content {
-                        if let Some(t) = c.get("text").and_then(Value::as_str) {
-                            if !t.is_empty() {
-                                parts.push(t.to_owned());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    parts.join("\n")
+    turn["items"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|item| {
+            matches!(
+                item["type"].as_str(),
+                Some("agentMessage" | "assistantMessage" | "message")
+            )
+        })
+        .filter_map(|item| extract_item_text(item, |_| true, |text| !text.is_empty()))
+        .filter(|text| !text.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[cfg(test)]
+#[test]
+fn assistant_text_retains_chronological_and_empty_direct_policy() {
+    let turn = json!({"items":[
+        {"type":"agentMessage","text":"first"},
+        {"type":"message","text":"","content":[{"text":"ignored"}]},
+        {"type":"assistantMessage","content":[{"text":""},{"text":" "},{"text":"second"}]},
+        {"type":"userMessage","text":"ignored"},
+        {"type":"message","text":"third"}
+    ]});
+    assert_eq!(
+        extract_turn_assistant_text(&turn),
+        "first\n \nsecond\nthird"
+    );
 }
 
 fn find_active_turn_id(thread_val: &Value) -> Option<String> {

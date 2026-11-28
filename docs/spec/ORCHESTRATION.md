@@ -150,6 +150,8 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
      - `wake_target`: `lead | front`
      - `all_of`: participant IDs that must all settle before waking (Fan-in Barrier)
      - `any_of`: participant IDs where the first settlement/failure wakes immediately
+     - Both lists must use registered `participant_id` values, not slugs. An unknown
+       ID is rejected as `unknown_participant_id` with the known IDs before arming.
      - `on_user_event`: wake immediately when `Fn` submits a scope update/message
      - `deadline_secs`: stall watchdog timer waking target if no condition fires in time
    - A direct Work can set `then_verify_shell` with an `all_of` list. The relay
@@ -269,6 +271,11 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
     before creating worktrees when ChatGPT is in `429` cooldown or at the
     ChatGPT concurrency cap. `termux-orch relay` emits concise secret-free
     operational logs and exposes cooldown / rate-limit telemetry on `/healthz`.
+    Both `/healthz` and `orch_call(relay_status)` expose `local_observe_calls`
+    (attempts to `/control/observe` with `local_only=true`) separately from
+    `remote_chatgpt_calls` (all other Provider control attempts, not a count of
+    actual upstream HTTP requests). Both count after cooldown admission and
+    Provider resolution, before transport, including failed transport attempts.
 
 ---
 

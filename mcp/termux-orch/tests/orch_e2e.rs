@@ -663,6 +663,8 @@ fn detached_shell_restart_barrier_kill_and_authenticated_immediate_wake() {
     });
     assert!(start.elapsed() < Duration::from_millis(1000));
     assert_eq!(h["wake_pushes"], 1);
+    assert!(h["local_observe_calls"].is_u64());
+    assert!(h["remote_chatgpt_calls"].is_u64());
     let mut mcp = Mcp::start(&mut command());
     let w = mcp.call("orch_works", json!({"action":"read","work_id":id}));
     assert_eq!(w["work"]["participants"][0]["state"], "completed");

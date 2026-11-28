@@ -1370,6 +1370,35 @@ mod tests {
         };
         ledger.save_work(&work).unwrap();
 
+        // Unknown IDs in either barrier list must not change the durable Wait-Set.
+        for key in ["all_of", "any_of"] {
+            let mut args = json!({
+                "action": "wait_set",
+                "work_id": "work_rl_test_0001",
+                "call_id": format!("unknown-{key}")
+            });
+            args[key] = json!(["w1"]);
+            let (result, is_error) = handler.call_tool("orch_dispatch", &args);
+            assert!(is_error, "{result}");
+            assert_eq!(result["error"], "unknown_participant_id", "{result}");
+            let detail = result["detail"].as_str().unwrap();
+            for participant in &work.participants {
+                assert!(detail.contains(&participant.participant_id), "{detail}");
+            }
+            let unchanged = ledger.load_work("work_rl_test_0001").unwrap();
+            assert!(unchanged.wait_set.is_none());
+            assert_eq!(unchanged.state, work.state);
+        }
+
+        // Count attempts at the actual owner boundary, not at relay tick level.
+        let local_before = owners.local_observe_calls();
+        let remote_before = owners.remote_chatgpt_calls();
+        owners.chatgpt_observe_chat("chat-w1", true).unwrap();
+        owners.chatgpt_observe_lane("lane-test").unwrap();
+        owners.chatgpt_observe_chat("chat-w1", false).unwrap();
+        assert_eq!(owners.local_observe_calls(), local_before + 2);
+        assert_eq!(owners.remote_chatgpt_calls(), remote_before + 1);
+
         // 1. Per-account ChatGPT concurrency cap rejects 3rd ChatGPT worker before touching provider.
         let (cap_res, cap_err) = handler.call_tool(
             "orch_dispatch",

@@ -117,6 +117,7 @@ pub fn run_relay_daemon(
                                 "rate_limit_hits": health_owners.rate_limit_hits(),
                                 "local_rate_limit_hits": health_owners.local_rate_limit_hits(),
                                 "remote_chatgpt_calls": health_owners.remote_chatgpt_calls(),
+                                "local_observe_calls": health_owners.local_observe_calls(),
                                 "state_root": state_root_str
                             })
                             .to_string();
