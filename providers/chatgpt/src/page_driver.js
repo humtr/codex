@@ -469,32 +469,65 @@
     return null;
   }
 
-  function requestBudget(burst, refillMs, minute) {
+  function requestBudget(burst, refillMs, minute, maxPaceMs = 1500, maxWaiters = 4) {
     const time = () => globalThis.performance?.now() ?? Date.now();
     let tokens = burst;
     let updated = time();
     const admitted = [];
+    let waited = 0;
+    let waiters = 0;
     let rejected = 0;
-    return {
-      take() {
-        const now = Math.max(updated, time());
-        tokens = Math.min(burst, tokens + (now - updated) / refillMs);
-        updated = now;
-        while (admitted.length && admitted[0] <= now - 60000) admitted.shift();
-        const wait = Math.max(
-          (1 - tokens) * refillMs,
-          admitted.length >= minute ? admitted[0] + 60000 - now : 0,
-        );
-        if (wait > 0) {
-          rejected++;
-          return { ok: false, state: "error", status: 0, error: "local_rate_limit",
-            json: null, text: "AppHost request budget exhausted", retry_after: String(Math.ceil(wait / 1000)) };
-        }
+    const inspect = () => {
+      const now = Math.max(updated, time());
+      tokens = Math.min(burst, tokens + (now - updated) / refillMs);
+      updated = now;
+      while (admitted.length && admitted[0] <= now - 60000) admitted.shift();
+      const tokenWait = (1 - tokens) * refillMs;
+      const minuteWait = admitted.length >= minute ? admitted[0] + 60000 - now : 0;
+      return { now, tokenWait, minuteWait, wait: Math.max(tokenWait, minuteWait) };
+    };
+    const reject = (wait) => {
+      rejected++;
+      return {
+        ok: false,
+        state: "error",
+        status: 0,
+        error: "local_rate_limit",
+        json: null,
+        text: "AppHost request budget exhausted",
+        retry_after: String(Math.ceil(wait / 1000)),
+      };
+    };
+    const take = () => {
+      const { now, wait } = inspect();
+      if (wait > 0) return reject(wait);
+      tokens--;
+      admitted.push(now);
+      return null;
+    };
+    const acquire = async () => {
+      const { now, minuteWait, wait } = inspect();
+      if (wait <= 0) {
         tokens--;
         admitted.push(now);
         return null;
-      },
-      status: () => ({ burst, refill_per_sec: 1000 / refillMs, per_minute: minute, rejected }),
+      }
+      if (minuteWait <= 0 && wait <= maxPaceMs && waiters < maxWaiters) {
+        waiters++;
+        waited++;
+        try {
+          await new Promise((resolve) => setTimeout(resolve, Math.ceil(wait)));
+        } finally {
+          waiters--;
+        }
+        return take();
+      }
+      return reject(wait);
+    };
+    return {
+      take,
+      acquire,
+      status: () => ({ burst, refill_per_sec: 1000 / refillMs, per_minute: minute, waited, rejected }),
     };
   }
 
@@ -524,9 +557,20 @@
     if (coalesce && conversationReads.has(path)) return conversationReads.get(path);
     const readOnly = method === "GET" || path === "/aip/connectors/links/list_accessible" ||
       path === "/ecosystem/call_mcp";
-    const limited = !exempt && (readOnly ? readBudget : sendBudget).take();
-    if (limited) return Promise.resolve(limited);
-    const request = fetchBackend(path, options, timeoutMs);
+    const run = async () => {
+      if (!exempt) {
+        const limited = await (readOnly ? readBudget : sendBudget).acquire();
+        if (limited) return limited;
+        if (Date.now() < retryAfterUntil) {
+          return {
+            ok: false, status: 429, error: "backend_http_429", json: null,
+            text: "Retry-After cooldown", retry_after: String(remainingRetryAfterSecs()),
+          };
+        }
+      }
+      return fetchBackend(path, options, timeoutMs);
+    };
+    const request = run();
     if (cachedAccountCheck) {
       accountCheckPending = request.then((result) => {
         if (result.ok) accountCheck = { until: Date.now() + 30000, result };
@@ -2226,11 +2270,17 @@
           false,
         );
       }
-      const limited = sendBudget.take();
+      const limited = await sendBudget.acquire();
       if (limited) {
         turn.error = { code: limited.error, detail: limited.text, retry_after: limited.retry_after };
         turn.resolveDone();
         return backendFailure(limited);
+      }
+      if (Date.now() < retryAfterUntil) {
+        const ra = String(remainingRetryAfterSecs());
+        turn.error = { code: "backend_http_429", detail: "Retry-After cooldown", retry_after: ra };
+        turn.resolveDone();
+        return { state: "error", error: "backend_http_429", detail: "Retry-After cooldown", retry_after: ra };
       }
       dispatched = true;
       const handle = await client.startCompletionStream({

@@ -1535,3 +1535,56 @@ test("pinned project metadata uses one direct read and account checks expire aft
   await driver.listConnectors({ include_details: false });
   assert.equal(checks, 2);
 });
+
+test("read admission paces brief partial-token shortage once, tracks waited, and enforces waiter cap", async () => {
+  let time = 100_000;
+  let fetches = 0;
+  const { driver } = createMockEnv({
+    now: () => time,
+    afterBackendCall: () => { fetches++; },
+    apiMap: {
+      "GET /backend-api/conversation/p1": { status: 200, body: { mapping: {}, title: "P1" } },
+      "GET /backend-api/conversation/p2": { status: 200, body: { mapping: {}, title: "P2" } },
+      "GET /backend-api/conversation/p3": { status: 200, body: { mapping: {}, title: "P3" } },
+      "GET /backend-api/conversation/p4": { status: 200, body: { mapping: {}, title: "P4" } },
+      "GET /backend-api/conversation/p5": { status: 200, body: { mapping: {}, title: "P5" } },
+      "GET /backend-api/conversation/p6": { status: 200, body: { mapping: {}, title: "P6" } },
+      "GET /backend-api/me": { status: 200, body: { account_id: "fixture" } },
+    },
+  });
+  // Drain the 5-token read burst.
+  for (let i = 0; i < 5; i++) {
+    assert.equal((await driver.readChat({ chat_id: "p1" })).state, "ok");
+  }
+  assert.equal(fetches, 5);
+
+  // Advance clock by 1950ms so 50ms shortage remains (<= 1500ms pace window).
+  time += 1950;
+  const pacedPromise = driver.readChat({ chat_id: "p2" });
+  // Advance virtual clock before the 50ms timer completes so re-take succeeds.
+  setTimeout(() => { time += 100; }, 10);
+  const paced = await pacedPromise;
+  assert.equal(paced.state, "ok", JSON.stringify(paced));
+  assert.equal(fetches, 6);
+
+  const st1 = await driver.status({ account_only: true });
+  assert.equal(st1.rate_limiter.read.waited, 1);
+  assert.equal(st1.rate_limiter.read.rejected, 0);
+
+  // Concurrent waiter cap (< 4): 5 distinct reads arriving at 100ms shortage ->
+  // first 4 enter wait queue, 5th fails fast immediately without waiting.
+  time += 1900;
+  const burstPromises = ["p2", "p3", "p4", "p5", "p6"].map((cid) =>
+    driver.readChat({ chat_id: cid })
+  );
+  // Advance time enough for only 1 token when waiters wake.
+  setTimeout(() => { time += 150; }, 15);
+  const results = await Promise.all(burstPromises);
+  assert.ok(
+    results.some((r) => r.state === "error" && r.error === "local_rate_limit"),
+    "excess waiters must fail fast with local_rate_limit"
+  );
+  const st2 = await driver.status({ account_only: true });
+  assert.equal(st2.rate_limiter.read.waited, 5, "only 4 new waiters should be admitted");
+  assert.ok(st2.rate_limiter.read.rejected >= 1);
+});

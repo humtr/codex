@@ -1492,3 +1492,101 @@ fn owner_queue_returns_while_owner_is_blocked_and_restart_never_replays_started_
     drop(mcp);
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn mcp_short_wait_returns_settled_result_with_live_relay_and_prevalidates_bad_args() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = tmp_dir("orch-short-wait-prevalidate");
+    let state = root.join("state");
+    let token = root.join("control.token");
+    fs::write(&token, "b".repeat(64)).unwrap();
+    fs::set_permissions(&token, fs::Permissions::from_mode(0o600)).unwrap();
+    let health = root.join("relay/health.url");
+    let command = || {
+        let mut cmd = Command::new(bin_path());
+        cmd.env("ORCH_STATE_DIR", &state)
+            .env("ORCH_RECEIPT_DIR", root.join("receipts"))
+            .env("ORCH_RELAY_HEALTH_URL_FILE", &health)
+            .env("CHATGPT_PROVIDER_URL", "http://127.0.0.1:1")
+            .env("CHATGPT_PROVIDER_TOKEN_FILE", &token)
+            .env("ORCH_NOTIFY_CMD", "true")
+            .env("ORCH_MCP_SHORT_WAIT_MS", "3000");
+        cmd
+    };
+
+    let mut relay = command()
+        .args([
+            "relay",
+            "--bind",
+            "127.0.0.1:0",
+            "--health-url-file",
+            health.to_str().unwrap(),
+            "--poll-ms",
+            "60000",
+        ])
+        .spawn()
+        .unwrap();
+    wait_for(|| health.exists().then_some(()));
+
+    let mut mcp = Mcp::start(&mut command());
+
+    // 1. Obvious invalid arguments fail locally in MCP without writing to requests/pending/.
+    let bad_req = json!({
+        "jsonrpc": "2.0",
+        "id": 10,
+        "method": "tools/call",
+        "params": {
+            "name": "orch_work",
+            "arguments": {
+                "action": "create",
+                "call_id": "preval-bad-1",
+                "title": "Missing goal",
+                "bogus_key": 1
+            }
+        }
+    });
+    let bad_res = rpc_payload(&mcp.rpc(&bad_req));
+    assert_eq!(bad_res["state"], "rejected", "{bad_res}");
+    assert_eq!(bad_res["error"], "invalid_arguments", "{bad_res}");
+    let pending_dir = state.join("requests").join("pending");
+    let pending_count = fs::read_dir(&pending_dir).map(|it| it.count()).unwrap_or(0);
+    assert_eq!(
+        pending_count, 0,
+        "pre-validated invalid request must not enqueue to pending/"
+    );
+
+    // 2. Valid create with live relay short-waits and returns settled work_id in ONE call.
+    let ok_req = json!({
+        "jsonrpc": "2.0",
+        "id": 11,
+        "method": "tools/call",
+        "params": {
+            "name": "orch_work",
+            "arguments": {
+                "action": "create",
+                "call_id": "short-wait-ok-1",
+                "title": "Short wait work",
+                "goal": "Return settled work_id directly",
+                "tier": "direct"
+            }
+        }
+    });
+    let ok_res = rpc_payload(&mcp.rpc(&ok_req));
+    assert_eq!(
+        ok_res["state"], "ok",
+        "expected direct settled response from short-wait, got: {ok_res}"
+    );
+    assert!(
+        ok_res["work_id"]
+            .as_str()
+            .is_some_and(|w| w.starts_with("work_")),
+        "expected work_id in settled short-wait response: {ok_res}"
+    );
+    assert!(ok_res["operation_id"].as_str().is_some(), "{ok_res}");
+
+    drop(mcp);
+    let _ = relay.kill();
+    let _ = relay.wait();
+    fs::remove_dir_all(root).unwrap();
+}

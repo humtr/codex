@@ -282,16 +282,19 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
     `/healthz` readiness endpoint + `termux-wake-lock` guidance).
   - `termux-orch mcp` — opt-in `runit` tunnel-wrapped stdio MCP (`termux-orch-tunnel`,
     registered programmatically via `POST /control/connectors` as `@TermuxOrch`).
-- **Asynchronous owner operations.** The MCP process durably accepts Work
-  creation, promotion, Front rebinding, model dispatch and session mutations
-  that require an owner call. `state=queued` includes an `operation_id`.
-  `orch_call(operation_status)` reads that operation's local receipt.
-  `processing` means relay claimed the request. A receipt can include a
-  Work-level `pending` result for owner reconciliation. Retrying
-  an identical call ID retrieves the original receipt. A conflicting payload
-  is rejected. Follow-up dispatch, Wait-Set registration and reporting use the
-  authoritative IDs from the settled operation. Relay runs the owner calls
-  under one owner gate. It reports an interrupted execution as
+- **Asynchronous owner operations.** The MCP process validates obvious local
+  argument errors before enqueuing and durably accepts Work creation, promotion,
+  Front rebinding, model dispatch and session mutations that require an owner
+  call. After waking a live relay, MCP may short-wait briefly (up to 3.5s) and
+  return the settled receipt directly when complete; otherwise `state=queued`
+  or `processing` includes an `operation_id`. `orch_call(operation_status)`
+  reads that operation's local receipt. `processing` means relay claimed the
+  request. Settled operation receipts are pruned to the newest 512 entries. A
+  receipt can include a Work-level `pending` result for owner reconciliation.
+  Retrying an identical call ID retrieves the original receipt. A conflicting
+  payload is rejected. Follow-up dispatch, Wait-Set registration and reporting
+  use the authoritative IDs from the settled operation. Relay runs the owner
+  calls under one owner gate. It reports an interrupted execution as
   `delivery_unknown` and reconciles any persisted Work intent without replaying
   an uncertain mutation. Rename and manual rollover extension arguments
   include a `call_id`. Local reports persist delivery and can request an
@@ -301,11 +304,14 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
 - **Provider admission and wake.** The AppHost page driver budgets reads
   (five burst, 0.5/s refill, 25 per rolling minute) and sends/writes (three
   burst, 0.2/s refill, ten per rolling minute). `/me` and stop are exempt.
-  Admission failures return `local_rate_limit` with `retry_after` before the
-  guarded request reaches ChatGPT. Concurrent equivalent conversation reads
-  share one in-progress request and successful account checks are cached for
-  30 seconds. Provider sends a coalesced authenticated loopback wake on tracked
-  Orch turn settlement. The relay continues periodic recovery if a wake is lost.
+  When a token shortage is brief (`<= 1500ms`), the rolling-minute cap has not
+  been reached, and concurrent waiters are below four, the driver paces once
+  before re-checking admission; otherwise admission failures return
+  `local_rate_limit` with `retry_after` before the guarded request reaches
+  ChatGPT. Concurrent equivalent conversation reads share one in-progress
+  request and successful account checks are cached for 30 seconds. Provider
+  sends a coalesced authenticated loopback wake on tracked Orch turn
+  settlement. The relay continues periodic recovery if a wake is lost.
 - **Static 6-tool core + disjoint extension slot** (uniform immutable MCP
   annotations `readOnlyHint: true`, `destructiveHint: false`, `openWorldHint: false`):
   1. `orch_works` (`list | read | checkpoint | inbox`)

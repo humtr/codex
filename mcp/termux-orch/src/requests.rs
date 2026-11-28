@@ -10,6 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_RECORD_BYTES: usize = 1024 * 1024;
 const MAX_QUEUED: usize = 128;
+const MAX_FINISHED_RECORDS: usize = 512;
 const VALID_TOOLS: &[&str] = &["orch_work", "orch_works", "orch_dispatch", "orch_call"];
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -176,8 +177,61 @@ impl Requests {
             fs::rename(&path, self.finished(&id))?;
             fs::File::open(self.root.join("finished"))?.sync_all()?;
             fs::File::open(self.root.join("pending"))?.sync_all()?;
+            let _ = self.prune_finished_locked(MAX_FINISHED_RECORDS);
         }
         Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn prune_finished(&self, keep: usize) -> io::Result<usize> {
+        let _lock = self.admission_lock()?;
+        self.prune_finished_locked(keep)
+    }
+
+    fn prune_finished_locked(&self, keep: usize) -> io::Result<usize> {
+        let dir = self.root.join("finished");
+        let mut entries: Vec<(u64, String, PathBuf)> = Vec::new();
+        for entry in fs::read_dir(&dir)? {
+            let entry = entry?;
+            let id = entry.file_name().to_string_lossy().into_owned();
+            if !valid_id(&id) {
+                continue;
+            }
+            let path = entry.path();
+            let Ok(meta) = fs::symlink_metadata(&path) else {
+                continue;
+            };
+            if !meta.file_type().is_file() {
+                continue;
+            }
+            let ts = read_record(&path)
+                .ok()
+                .flatten()
+                .map(|record| record.submitted_at)
+                .unwrap_or_else(|| {
+                    meta.modified()
+                        .ok()
+                        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                        .map(|d| d.as_micros().min(u128::from(u64::MAX)) as u64)
+                        .unwrap_or(0)
+                });
+            entries.push((ts, id, path));
+        }
+        if entries.len() <= keep {
+            return Ok(0);
+        }
+        entries.sort_unstable_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+        let remove_count = entries.len() - keep;
+        let mut removed = 0usize;
+        for (_, _, path) in entries.into_iter().take(remove_count) {
+            if fs::remove_file(path).is_ok() {
+                removed += 1;
+            }
+        }
+        if removed > 0 {
+            let _ = fs::File::open(&dir).and_then(|f| f.sync_all());
+        }
+        Ok(removed)
     }
 }
 
@@ -225,4 +279,57 @@ fn write_record(path: &Path, record: &Operation) -> io::Result<()> {
         ));
     }
     write_atomic_private(path, &bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prune_finished_keeps_newest_records_and_ignores_unrelated_files() {
+        let root = std::env::temp_dir().join(format!(
+            "termux-orch-req-prune-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        let ledger = Ledger::open(root.join("state")).unwrap();
+        let reqs = Requests::open(&ledger).unwrap();
+        let mut ids = Vec::new();
+        for i in 0..8u64 {
+            let call_id = format!("prune-call-{i}");
+            let id = sha256_hex(call_id.as_bytes());
+            let record = Operation {
+                fingerprint: sha256_hex(format!("fp-{i}").as_bytes()),
+                submitted_at: 1000 + i,
+                request: None,
+                started: true,
+                result: Some(json!({"state": "ok", "idx": i})),
+            };
+            write_record(&reqs.finished(&id), &record).unwrap();
+            ids.push(id);
+        }
+        // Unrelated non-hex filename must not be removed.
+        let keep_note = reqs.root.join("finished").join("keep-note.txt");
+        fs::write(&keep_note, "ignore").unwrap();
+
+        let removed = reqs.prune_finished(3).unwrap();
+        assert_eq!(removed, 5);
+        for old in &ids[..5] {
+            assert!(
+                !reqs.finished(old).exists(),
+                "old receipt {old} should be pruned"
+            );
+        }
+        for recent in &ids[5..] {
+            assert!(
+                reqs.finished(recent).exists(),
+                "recent receipt {recent} should remain"
+            );
+        }
+        assert!(keep_note.exists());
+        let _ = fs::remove_dir_all(&root);
+    }
 }

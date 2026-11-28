@@ -38,6 +38,83 @@ pub use schema::build_static_tools;
 #[cfg(test)]
 pub use schema::STATIC_TOOL_NAMES;
 
+const DEFAULT_SHORT_WAIT_MS: u64 = 3500;
+const MAX_SHORT_WAIT_MS: u64 = 5000;
+
+pub(super) const WORKS_ALLOWED_KEYS: &[&str] = &[
+    "action",
+    "work_id",
+    "include_terminal",
+    "after_seq",
+    "limit",
+    "call_id",
+    "rebind_front_chat_id",
+    "rebind_front_marker",
+];
+
+pub(super) const WORK_ALLOWED_KEYS: &[&str] = &[
+    "action",
+    "call_id",
+    "work_id",
+    "expected_lead_generation",
+    "title",
+    "goal",
+    "tier",
+    "completion_criteria",
+    "steps",
+    "verification_policy",
+    "project_id",
+    "project_scope",
+    "project_name",
+    "session_prefixes",
+    "front_chat_id",
+    "front_marker",
+    "delivery_mode",
+    "lead_kind",
+    "lead_profile",
+    "lead_model",
+    "lead_model_provider",
+    "lead_reasoning_effort",
+    "lead_cwd",
+    "lead_ref_id",
+    "max_wakeups",
+    "lead_rollover_turns",
+    "max_wall_secs",
+    "max_concurrent_workers",
+    "reason",
+];
+
+pub(super) const DISPATCH_ALLOWED_KEYS: &[&str] = &[
+    "action",
+    "call_id",
+    "work_id",
+    "expected_lead_generation",
+    "lead_ref_id",
+    "backend",
+    "ref_id",
+    "profile",
+    "slug",
+    "task_summary",
+    "owner_scope",
+    "prompt",
+    "command",
+    "cwd",
+    "read_only",
+    "write_paths",
+    "isolation",
+    "model",
+    "model_provider",
+    "reasoning_effort",
+    "approval_policy",
+    "wake_target",
+    "all_of",
+    "then_verify_shell",
+    "any_of",
+    "on_user_event",
+    "deadline_secs",
+    "checkpoint_md",
+];
+
 pub struct OrchMcpHandler {
     ledger: Ledger,
     owners: OwnerClient,
@@ -63,6 +140,169 @@ impl OrchMcpHandler {
         handler
     }
 
+    fn short_wait_budget() -> std::time::Duration {
+        let ms = std::env::var("ORCH_MCP_SHORT_WAIT_MS")
+            .ok()
+            .and_then(|v| v.trim().parse::<u64>().ok())
+            .map(|n| n.min(MAX_SHORT_WAIT_MS))
+            .unwrap_or(DEFAULT_SHORT_WAIT_MS);
+        std::time::Duration::from_millis(ms)
+    }
+
+    fn validate_owner_request(tool: &str, action: &str, args: &Value) -> Option<Value> {
+        let Some(obj) = args.as_object() else {
+            return Some(fail("invalid_arguments", "arguments must be a JSON object"));
+        };
+        let allowed = match tool {
+            "orch_work" => WORK_ALLOWED_KEYS,
+            "orch_works" => WORKS_ALLOWED_KEYS,
+            "orch_dispatch" => DISPATCH_ALLOWED_KEYS,
+            "orch_call" => &["action", "arguments"],
+            _ => return None,
+        };
+        if let Err(e) = check_allowed_keys(obj, allowed) {
+            return Some(fail("invalid_arguments", e));
+        }
+        match (tool, action) {
+            ("orch_work", "create") => {
+                if obj
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty() && s.len() <= 120)
+                    .is_none()
+                {
+                    return Some(fail(
+                        "invalid_arguments",
+                        "'title' (1..=120 chars) is required for action=create",
+                    ));
+                }
+                if obj
+                    .get("goal")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty() && s.len() <= 8192)
+                    .is_none()
+                {
+                    return Some(fail(
+                        "invalid_arguments",
+                        "'goal' (1..=8192 chars) is required for action=create",
+                    ));
+                }
+                if let Some(tier) = obj.get("tier") {
+                    if !matches!(tier.as_str(), Some("direct" | "orchestrated")) {
+                        return Some(fail(
+                            "invalid_arguments",
+                            "'tier' must be direct|orchestrated",
+                        ));
+                    }
+                }
+                if let Some(steps) = obj.get("steps") {
+                    if let Err(e) = serde_json::from_value::<Vec<StepSpec>>(steps.clone()) {
+                        return Some(fail("invalid_steps", e.to_string()));
+                    }
+                }
+            }
+            ("orch_work", "promote" | "rebind_front") => {
+                if obj
+                    .get("work_id")
+                    .and_then(Value::as_str)
+                    .filter(|s| is_safe_work_id(s))
+                    .is_none()
+                {
+                    return Some(fail("invalid_work_id", "valid work_id is required"));
+                }
+            }
+            ("orch_works", "read") => {
+                if obj.get("rebind_front_chat_id").is_some()
+                    && obj.get("rebind_front_marker").is_some()
+                {
+                    return Some(fail(
+                        "invalid_arguments",
+                        "rebind requires a specific read and exactly one Front identifier",
+                    ));
+                }
+                if obj
+                    .get("work_id")
+                    .and_then(Value::as_str)
+                    .filter(|s| is_safe_work_id(s))
+                    .is_none()
+                {
+                    return Some(fail("invalid_work_id", "valid work_id is required"));
+                }
+            }
+            ("orch_dispatch", "register_worker" | "register_verifier") => {
+                if obj
+                    .get("work_id")
+                    .and_then(Value::as_str)
+                    .filter(|s| is_safe_work_id(s))
+                    .is_none()
+                {
+                    return Some(fail("invalid_work_id", "valid work_id is required"));
+                }
+                if !matches!(
+                    obj.get("backend").and_then(Value::as_str),
+                    Some("codex" | "chatgpt" | "shell")
+                ) {
+                    return Some(fail(
+                        "invalid_arguments",
+                        "'backend' must be codex|chatgpt|shell",
+                    ));
+                }
+            }
+            ("orch_call", "rename_session") => {
+                let Some(ext) = obj.get("arguments").and_then(Value::as_object) else {
+                    return Some(fail(
+                        "invalid_arguments",
+                        "'arguments' must be a JSON object",
+                    ));
+                };
+                if !matches!(
+                    ext.get("backend").and_then(Value::as_str),
+                    Some("chatgpt" | "codex")
+                ) {
+                    return Some(fail("invalid_arguments", "'backend' must be chatgpt|codex"));
+                }
+                if ext
+                    .get("ref_id")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .is_none()
+                    || ext
+                        .get("title")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty() && s.len() <= 180)
+                        .is_none()
+                {
+                    return Some(fail(
+                        "invalid_arguments",
+                        "non-empty 'ref_id' and 'title' (<= 180 chars) are required",
+                    ));
+                }
+            }
+            ("orch_call", "lead_rollover") => {
+                let Some(ext) = obj.get("arguments").and_then(Value::as_object) else {
+                    return Some(fail(
+                        "invalid_arguments",
+                        "'arguments' must be a JSON object",
+                    ));
+                };
+                if ext
+                    .get("work_id")
+                    .and_then(Value::as_str)
+                    .filter(|s| is_safe_work_id(s))
+                    .is_none()
+                {
+                    return Some(fail("invalid_work_id", "valid work_id is required"));
+                }
+            }
+            _ => {}
+        }
+        None
+    }
+
     fn owner_request(&self, tool: &str, args: &Value) -> Option<Value> {
         if !self.admission_only {
             return None;
@@ -83,6 +323,9 @@ impl OrchMcpHandler {
         if !queued {
             return None;
         }
+        if let Some(err) = Self::validate_owner_request(tool, action, args) {
+            return Some(err);
+        }
         let result = crate::requests::Requests::open(&self.ledger)
             .and_then(|requests| requests.submit(tool, args, || self.reconcile_request(tool, args)))
             .unwrap_or_else(|error| {
@@ -96,7 +339,31 @@ impl OrchMcpHandler {
                 )
             });
         if result["state"] == "queued" {
-            let _ = crate::wake::request(true);
+            let woke = crate::wake::request(true).is_some_and(|resp| resp["state"] == "accepted");
+            let max_wait = Self::short_wait_budget();
+            if woke && !max_wait.is_zero() {
+                if let Some(op_id) = result["operation_id"].as_str() {
+                    if let Ok(requests) = crate::requests::Requests::open(&self.ledger) {
+                        let deadline = std::time::Instant::now() + max_wait;
+                        let mut sleep_ms = 50u64;
+                        while std::time::Instant::now() < deadline {
+                            std::thread::sleep(std::time::Duration::from_millis(sleep_ms));
+                            sleep_ms = (sleep_ms + 50).min(100);
+                            if let Ok(status) = requests.status(op_id) {
+                                if !matches!(
+                                    status["state"].as_str(),
+                                    Some("queued" | "processing")
+                                ) {
+                                    return Some(status);
+                                }
+                            }
+                        }
+                        if let Ok(status) = requests.status(op_id) {
+                            return Some(status);
+                        }
+                    }
+                }
+            }
         }
         Some(result)
     }
@@ -138,19 +405,7 @@ impl OrchMcpHandler {
         let Some(obj) = args.as_object() else {
             return fail("invalid_arguments", "arguments must be a JSON object");
         };
-        if let Err(e) = check_allowed_keys(
-            obj,
-            &[
-                "action",
-                "work_id",
-                "include_terminal",
-                "after_seq",
-                "limit",
-                "call_id",
-                "rebind_front_chat_id",
-                "rebind_front_marker",
-            ],
-        ) {
+        if let Err(e) = check_allowed_keys(obj, WORKS_ALLOWED_KEYS) {
             return fail("invalid_arguments", e);
         }
         let Some(action) = obj.get("action").and_then(Value::as_str) else {

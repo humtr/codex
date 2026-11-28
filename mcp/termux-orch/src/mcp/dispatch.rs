@@ -5,39 +5,7 @@ impl OrchMcpHandler {
         let Some(obj) = args.as_object() else {
             return fail("invalid_arguments", "arguments must be a JSON object");
         };
-        if let Err(e) = check_allowed_keys(
-            obj,
-            &[
-                "action",
-                "call_id",
-                "work_id",
-                "expected_lead_generation",
-                "lead_ref_id",
-                "backend",
-                "ref_id",
-                "profile",
-                "slug",
-                "task_summary",
-                "owner_scope",
-                "prompt",
-                "command",
-                "cwd",
-                "read_only",
-                "write_paths",
-                "isolation",
-                "model",
-                "model_provider",
-                "reasoning_effort",
-                "approval_policy",
-                "wake_target",
-                "all_of",
-                "then_verify_shell",
-                "any_of",
-                "on_user_event",
-                "deadline_secs",
-                "checkpoint_md",
-            ],
-        ) {
+        if let Err(e) = check_allowed_keys(obj, DISPATCH_ALLOWED_KEYS) {
             return fail("invalid_arguments", e);
         }
         let Some(action) = obj.get("action").and_then(Value::as_str) else {
