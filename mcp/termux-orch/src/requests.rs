@@ -367,9 +367,7 @@ impl Requests {
             let mut shard = match self.load_tombstone_shard(&prefix) {
                 Ok(s) => s,
                 Err(err) => {
-                    if first_error.is_none() {
-                        first_error = Some(err);
-                    }
+                    first_error.get_or_insert(err);
                     continue;
                 }
             };
@@ -396,9 +394,7 @@ impl Requests {
                     }
                     Ok(None) => {}
                     Err(err) => {
-                        if first_error.is_none() {
-                            first_error = Some(err);
-                        }
+                        first_error.get_or_insert(err);
                         read_failed = true;
                         break;
                     }
@@ -409,9 +405,7 @@ impl Requests {
             }
             if let Err(err) = self.save_tombstone_shard(&prefix, &shard, max_shard_bytes) {
                 // Fail closed: do NOT unlink full receipts if shard persistence failed.
-                if first_error.is_none() {
-                    first_error = Some(err);
-                }
+                first_error.get_or_insert(err);
                 continue;
             }
             for path in prepared {
@@ -419,18 +413,14 @@ impl Requests {
                     Ok(()) => removed += 1,
                     Err(err) if err.kind() == io::ErrorKind::NotFound => {}
                     Err(err) => {
-                        if first_error.is_none() {
-                            first_error = Some(err);
-                        }
+                        first_error.get_or_insert(err);
                     }
                 }
             }
         }
         if removed > 0 {
             if let Err(err) = fs::File::open(&dir).and_then(|f| f.sync_all()) {
-                if first_error.is_none() {
-                    first_error = Some(err);
-                }
+                first_error.get_or_insert(err);
             }
         }
         if let Some(err) = first_error {

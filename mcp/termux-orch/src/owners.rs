@@ -85,6 +85,7 @@ pub struct ChatGptObservation {
     pub remote_stream_status: Option<String>,
     pub assistant_text: String,
     pub error: Option<String>,
+    pub terminal_turn: bool,
     pub retry_after_secs: Option<u64>,
 }
 
@@ -261,6 +262,9 @@ impl OwnerClient {
         }
         if (200..300).contains(&resp.status) {
             let val = resp.json.unwrap_or_else(|| json!({ "raw": resp.raw_text }));
+            if val["terminal_turn"] == true && path == "/control/observe" {
+                return Ok(val);
+            }
             if val["error"] == "local_rate_limit" {
                 self.gate
                     .local_rate_limit_hits
@@ -432,12 +436,20 @@ impl OwnerClient {
         chat_id: &str,
         local_only: bool,
     ) -> Result<ChatGptObservation, String> {
-        let val = self.control_call(
-            "POST",
-            "/control/observe",
-            Some(&json!({ "chat_id": chat_id, "local_only": local_only })),
-            READ_TIMEOUT,
-        )?;
+        self.chatgpt_observe_tracked(chat_id, None, local_only)
+    }
+
+    pub fn chatgpt_observe_tracked(
+        &self,
+        chat_id: &str,
+        lane_id: Option<&str>,
+        local_only: bool,
+    ) -> Result<ChatGptObservation, String> {
+        let mut args = json!({ "chat_id": chat_id, "local_only": local_only });
+        if let Some(lane) = lane_id {
+            args["lane_id"] = json!(lane);
+        }
+        let val = self.control_call("POST", "/control/observe", Some(&args), READ_TIMEOUT)?;
         let state = val
             .get("state")
             .and_then(Value::as_str)
@@ -468,6 +480,7 @@ impl OwnerClient {
             remote_stream_status,
             assistant_text,
             error,
+            terminal_turn: val["terminal_turn"] == true,
             retry_after_secs,
         })
     }
@@ -799,7 +812,11 @@ impl OwnerClient {
         approval_policy: Option<&str>,
         before_turn: impl FnOnce(&str) -> Result<(), String>,
     ) -> Result<(String, Option<String>), String> {
-        let mut client = self.connect_codex(profile)?;
+        let mut client = self
+            .connect_codex(profile)
+            .map_err(|e| format!("codex_preflight_failed: {e}"))?;
+        Self::check_codex_account(&mut client)
+            .map_err(|e| format!("codex_preflight_failed: {e}"))?;
         let tid = if let Some(existing) = thread_id {
             let _ = client
                 .call("thread/resume", json!({ "threadId": existing }))

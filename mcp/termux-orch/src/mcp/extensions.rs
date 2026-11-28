@@ -236,8 +236,21 @@ impl OrchMcpHandler {
                         }
                     };
                 }
+                if work
+                    .wait_set
+                    .as_ref()
+                    .is_some_and(|w| w.armed && w.then_verify_shell.is_some())
+                {
+                    return fail("work_unavailable", "Work cannot start a Lead");
+                }
                 if work.lead_rollover.is_some() || work.lead_replay.is_some() {
                     return fail("lead_rollover_in_progress", "ChatGPT handoff is pending");
+                }
+                if let Err(error) = self
+                    .owners
+                    .codex_preflight(ext_args.get("lead_profile").and_then(Value::as_str))
+                {
+                    return fail("codex_preflight_failed", error);
                 }
                 if let Some(cp) = ext_args.get("checkpoint_md").and_then(Value::as_str) {
                     if let Err(error) = self.ledger.write_checkpoint(wid, cp) {
@@ -247,6 +260,7 @@ impl OrchMcpHandler {
                 let next_gen = work.lead.as_ref().map(|l| l.generation).unwrap_or(0) + 1;
                 let mut warnings = Vec::new();
                 let mut lead_args = ext_args.clone();
+                lead_args.remove("lead_ref_id");
                 lead_args.insert("lead_kind".to_owned(), json!("codex"));
                 match self.spawn_or_bind_lead(&mut work, next_gen, &lead_args, &mut warnings) {
                     Ok(true) => (),

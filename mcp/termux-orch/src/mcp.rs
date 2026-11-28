@@ -377,7 +377,12 @@ impl OrchMcpHandler {
 
     pub(crate) fn reconcile_request(&self, tool: &str, args: &Value) -> Option<Value> {
         let action = args["action"].as_str()?;
-        let call_id = validate_call_id(args).ok()?;
+        let call = if tool == "orch_call" {
+            &args["arguments"]
+        } else {
+            args
+        };
+        let call_id = validate_call_id(call).ok()?;
         let (operation, input) = match (tool, action) {
             ("orch_works", "read") => {
                 let (name, key) = if args.get("rebind_front_chat_id").is_some() {
@@ -393,10 +398,29 @@ impl OrchMcpHandler {
                 )
             }
             ("orch_work" | "orch_dispatch", _) => (format!("{tool}:{action}"), args.clone()),
+            ("orch_call", "rename_session" | "lead_rollover") => {
+                let store = match self.open_receipts() {
+                    Ok(store) => store,
+                    Err(code) => return Some(fail(code, "cannot inspect orch receipt store")),
+                };
+                // Owner extensions never claim local receipts. Any occupied
+                // local call_id conflicts, including a started/invalid receipt.
+                let receipt = store.inspect(call_id, &[""]);
+                return (receipt["state"] != "not_found").then_some(receipt);
+            }
             _ => return None,
         };
         let fingerprint = sha256_hex(json!([operation, input]).to_string().as_bytes());
-        let receipt = self.open_receipts().ok()?.inspect(call_id, &[&fingerprint]);
+        let store = match self.open_receipts() {
+            Ok(store) => store,
+            Err(code) => return Some(fail(code, "cannot inspect orch receipt store")),
+        };
+        let receipt = store.inspect(call_id, &[&fingerprint]);
+        if tool == "orch_works" && receipt["state"] == "ok" {
+            return Some(json!({"state":"delivery_unknown","executed":"unknown",
+                "error":"read_after_rebind_result_unconfirmed",
+                "work_id":args["work_id"]}));
+        }
         (receipt["state"] != "not_found").then_some(receipt)
     }
 

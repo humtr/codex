@@ -162,6 +162,10 @@ impl RelayEngine {
                         "backend_http_429:retry_after={}",
                         obs.retry_after_secs.unwrap_or(DEFAULT_429_COOLDOWN_SECS)
                     ))
+                } else if obs.state == "error" {
+                    Err(obs
+                        .error
+                        .unwrap_or_else(|| "chat_readiness_unconfirmed".to_owned()))
                 } else if obs.generating {
                     Err(format!(
                         "{}_chat_busy({})",
@@ -174,7 +178,11 @@ impl RelayEngine {
             }),
             "codex" => self
                 .owners
-                .codex_observe_thread(profile.as_deref(), &ref_id)
+                .codex_preflight(profile.as_deref())
+                .and_then(|()| {
+                    self.owners
+                        .codex_observe_thread(profile.as_deref(), &ref_id)
+                })
                 .and_then(|obs| {
                     if obs.is_active {
                         Err("lead_codex_active".to_owned())
@@ -275,6 +283,10 @@ impl RelayEngine {
             ) {
                 Ok((thread, Some(_))) if thread == ref_id => Delivered,
                 Ok(_) => defer("delivery_receipt_unconfirmed".to_owned()),
+                Err(error) if error.starts_with("codex_preflight_failed: ") => {
+                    delivery.dispatch = None;
+                    defer(error)
+                }
                 Err(error) => defer(error),
             },
             _ => unreachable!("unsupported backend rejected before dispatch"),

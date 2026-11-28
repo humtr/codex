@@ -172,7 +172,10 @@ impl OrchMcpHandler {
             .filter(|s| !s.is_empty());
         if tier == "orchestrated"
             && obj.get("lead_kind").and_then(Value::as_str) == Some("codex")
-            && obj.get("lead_ref_id").and_then(Value::as_str).is_none()
+            && obj
+                .get("lead_ref_id")
+                .and_then(Value::as_str)
+                .is_none_or(|id| id.trim().is_empty())
         {
             if let Err(error) = self
                 .owners
@@ -486,6 +489,13 @@ impl OrchMcpHandler {
                     lead.ref_id = ref_id;
                     lead.turn_id = turn_id;
                 }
+                Err(error) if kind == "codex" && error.starts_with("codex_preflight_failed: ") => {
+                    work.pending_lead = None;
+                    self.ledger
+                        .save_work(work)
+                        .map_err(|e| fail("ledger_write_failed", e.to_string()))?;
+                    return Err(fail("codex_preflight_failed", error));
+                }
                 Err(error) if work.pending_lead.is_some() => {
                     warnings.push(format!("lead_dispatch_pending: {error}"));
                     return Ok(false);
@@ -553,6 +563,19 @@ impl OrchMcpHandler {
                 }),
                 true,
             );
+        }
+        if obj.get("lead_kind").and_then(Value::as_str) == Some("codex")
+            && obj
+                .get("lead_ref_id")
+                .and_then(Value::as_str)
+                .is_none_or(|id| id.trim().is_empty())
+        {
+            if let Err(error) = self
+                .owners
+                .codex_preflight(obj.get("lead_profile").and_then(Value::as_str))
+            {
+                return (fail("codex_preflight_failed", error), false);
+            }
         }
         let mut warnings = Vec::new();
         match self.spawn_or_bind_lead(&mut work, 1, obj, &mut warnings) {

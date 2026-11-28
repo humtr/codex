@@ -379,6 +379,7 @@ mod tests {
             pending_participant: Option<(String, String)>,
             pending_participant_sends: u32,
             account_available: bool,
+            front_updated_at_unix: u64,
             structured_review: Option<String>,
         }
         let mstate = Arc::new(Mutex::new(MockState {
@@ -391,6 +392,7 @@ mod tests {
             pending_participant: None,
             pending_participant_sends: 0,
             account_available: true,
+            front_updated_at_unix: ledger::now_unix(),
             structured_review: None,
         }));
         let mstate_srv = Arc::clone(&mstate);
@@ -403,36 +405,10 @@ mod tests {
             while !stop_srv_clone.load(std::sync::atomic::Ordering::Acquire) {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
-                        let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(2)));
-                        let mut raw = Vec::new();
-                        let mut tmp = [0u8; 4096];
-                        let mut content_len: Option<usize> = None;
-                        let mut header_end: Option<usize> = None;
-                        while let Ok(n) = stream.read(&mut tmp) {
-                            if n == 0 {
-                                break;
-                            }
-                            raw.extend_from_slice(&tmp[..n]);
-                            if header_end.is_none() {
-                                if let Some(pos) = raw.windows(4).position(|w| w == b"\r\n\r\n") {
-                                    header_end = Some(pos + 4);
-                                    let head = String::from_utf8_lossy(&raw[..pos]);
-                                    for line in head.lines() {
-                                        if let Some((k, v)) = line.split_once(':') {
-                                            if k.trim().eq_ignore_ascii_case("content-length") {
-                                                content_len = v.trim().parse::<usize>().ok();
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            if let Some(he) = header_end {
-                                if raw.len() >= he + content_len.unwrap_or(0) {
-                                    break;
-                                }
-                            }
-                        }
-                        let req = String::from_utf8_lossy(&raw);
+                        stream
+                            .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+                            .unwrap();
+                        let req = read_mock_http_request(&mut stream).unwrap();
                         let first = req.lines().next().unwrap_or("");
                         let body_str = req.split("\r\n\r\n").nth(1).unwrap_or("");
                         let body: Value = serde_json::from_str(body_str).unwrap_or(json!({}));
@@ -460,7 +436,7 @@ mod tests {
                                 .collect();
                             json!({"state":"ok","projects":projects,"next_cursor":null})
                         } else if first.starts_with("GET /control/chats?") {
-                            json!({"state":"ok","chats":[{"id":"chat-f2","title":"New Mobile Chat","update_time_unix":ledger::now_unix()}]})
+                            json!({"state":"ok","chats":[{"id":"chat-f2","title":"New Mobile Chat","update_time_unix":st.front_updated_at_unix}]})
                         } else if first.starts_with("GET /control/chats/chat-f1") {
                             let messages: Vec<_> = st
                                 .sends
@@ -528,7 +504,7 @@ mod tests {
                             if let Some((lane, _)) = st
                                 .pending_participant
                                 .as_ref()
-                                .filter(|(lane, _)| body["lane_id"] == *lane)
+                                .filter(|(lane, _)| cid.is_empty() && body["lane_id"] == *lane)
                             {
                                 json!({"state":"in_progress","lane_id":lane,"chat_id":"chat-uncertain","generating":true})
                             } else if cid == "chat-uncertain" {
@@ -578,7 +554,7 @@ mod tests {
             codex_socket_override: None,
             notify_cmd: Some("/bin/true".to_owned()),
         });
-        let mut handler = OrchMcpHandler::new(ledger.clone(), owners.clone(), rcpt_dir);
+        let mut handler = OrchMcpHandler::new(ledger.clone(), owners.clone(), rcpt_dir.clone());
 
         // 1. Tier 1 direct Work creation with a repository project and [F1] rename
         let (created, is_err) = handler.call_tool(
@@ -729,7 +705,32 @@ mod tests {
                 .as_deref(),
             Some("chat-f1")
         );
-        mstate.lock().unwrap().account_available = true;
+        {
+            let mut state = mstate.lock().unwrap();
+            state.account_available = true;
+            // A timestamp ahead of the scan snapshot must not be accepted.
+            // Simulate the response-time clock race without relying on a second boundary.
+            state.front_updated_at_unix = ledger::now_unix().saturating_add(60);
+        }
+        let (future, error) = handler.call_tool(
+            "orch_works",
+            &json!({
+                "action": "read", "call_id": "future-front", "work_id": wid,
+                "rebind_front_marker": "MARKER_F2_CONTINUE"
+            }),
+        );
+        assert!(error, "{future}");
+        assert_eq!(future["error"], "front_resolve_failed");
+        assert!(future["detail"]
+            .as_str()
+            .unwrap()
+            .starts_with("front_marker_not_found:"));
+        let unchanged = ledger.load_work(&wid).unwrap();
+        assert_eq!(unchanged.front.latest_chat_id.as_deref(), Some("chat-f1"));
+        assert_eq!(unchanged.front.generation, 1);
+        // F2 already exists before the scan; do not generate its timestamp when
+        // the HTTP response is sent after the scan has captured its clock.
+        mstate.lock().unwrap().front_updated_at_unix = ledger::now_unix();
         let (reb, is_err) = handler.call_tool(
             "orch_works",
             &json!({
@@ -752,6 +753,56 @@ mod tests {
         assert!(!ledger
             .has_user_event_after(&wid, rebound.last_seq - 1)
             .unwrap());
+
+        // Simulate termination after the inner rebind receipt was committed,
+        // before Requests::run can settle the outer read. Recovery must not
+        // replay the mutation or expose the inner payload as a read success.
+        let (crash_work, error) = handler.call_tool(
+            "orch_work",
+            &json!({
+                "action":"create","call_id":"read-crash-work","title":"Read recovery",
+                "goal":"Preserve the original binding","tier":"direct","front_chat_id":"chat-f1"
+            }),
+        );
+        assert!(!error, "{crash_work}");
+        let crash_id = crash_work["work_id"].as_str().unwrap();
+        let read = json!({"action":"read","call_id":"read-crash","work_id":crash_id,
+            "rebind_front_chat_id":"chat-f2"});
+        let requests = crate::requests::Requests::open(&ledger).unwrap();
+        let queued = requests.submit("orch_works", &read, || None).unwrap();
+        let interrupted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            requests
+                .run(|tool, args, started| {
+                    assert_eq!(tool, "orch_works");
+                    assert_eq!(args, &read);
+                    assert!(!started);
+                    let (inner, error) = handler.call_tool(
+                        "orch_work",
+                        &json!({
+                            "action":"rebind_front","call_id":"read-crash","work_id":crash_id,
+                            "front_chat_id":"chat-f2"
+                        }),
+                    );
+                    assert!(!error, "{inner}");
+                    assert_eq!(inner["front_generation"], 2);
+                    panic!("fixture interruption after inner receipt");
+                })
+                .unwrap();
+        }));
+        assert!(interrupted.is_err());
+        let rename_count = mstate.lock().unwrap().renames.len();
+        relay::run_requests(&ledger, &owners, rcpt_dir.clone()).unwrap();
+        let recovered = requests
+            .status(queued["operation_id"].as_str().unwrap())
+            .unwrap();
+        assert_eq!(recovered["state"], "delivery_unknown", "{recovered}");
+        assert_eq!(recovered["error"], "read_after_rebind_result_unconfirmed");
+        let (readback, error) =
+            handler.call_tool("orch_works", &json!({"action":"read","work_id":crash_id}));
+        assert!(!error, "{readback}");
+        assert_eq!(readback["work"]["front"]["generation"], 2);
+        assert_eq!(readback["work"]["front"]["latest_chat_id"], "chat-f2");
+        assert_eq!(mstate.lock().unwrap().renames.len(), rename_count);
 
         let (second, error) = handler.call_tool("orch_work", &json!({
             "action":"create", "call_id":"same-scope", "title":"Second Work", "goal":"Reuse project",
@@ -1172,6 +1223,76 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 
+    // The control client writes headers and body separately. TCP can split either.
+    // Bound the fixture read to its original 16 KiB capacity and require the
+    // complete declared body before letting the mock classify the request.
+    fn read_mock_http_request(stream: impl Read) -> std::io::Result<String> {
+        use std::io::{BufRead, BufReader, Error, ErrorKind};
+        const MAX_REQUEST: usize = 16384;
+        let mut reader = BufReader::new(stream.take(MAX_REQUEST as u64));
+        let mut request = String::new();
+        loop {
+            let start = request.len();
+            if reader.read_line(&mut request)? == 0 {
+                return Err(Error::new(
+                    ErrorKind::UnexpectedEof,
+                    "incomplete mock HTTP header",
+                ));
+            }
+            if &request[start..] == "\r\n" {
+                break;
+            }
+        }
+        let content_len = request
+            .lines()
+            .filter_map(|line| line.split_once(':'))
+            .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+            .map(|(_, value)| value.trim().parse::<usize>())
+            .transpose()
+            .map_err(|error| Error::new(ErrorKind::InvalidData, error))?
+            .unwrap_or(0);
+        if content_len > MAX_REQUEST - request.len() {
+            return Err(Error::new(
+                ErrorKind::InvalidData,
+                "mock HTTP request too large",
+            ));
+        }
+        let mut body = vec![0; content_len];
+        reader.read_exact(&mut body)?;
+        request.push_str(
+            std::str::from_utf8(&body)
+                .map_err(|error| Error::new(ErrorKind::InvalidData, error))?,
+        );
+        Ok(request)
+    }
+
+    #[test]
+    fn mock_http_request_reads_split_headers_and_body() {
+        let body = r#"{"chat_id":"chat-w2","local_only":false}"#;
+        let request = format!(
+            "POST /control/observe HTTP/1.1\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        );
+        let bytes = request.as_bytes();
+        // A chained reader returns the first fragment before the second, even
+        // when both fit in a single buffer. Exercise every possible split.
+        for split in 1..bytes.len() {
+            let read = read_mock_http_request(bytes[..split].chain(&bytes[split..])).unwrap();
+            assert_eq!(read, request, "split at {split}");
+            let args: Value = serde_json::from_str(read.split_once("\r\n\r\n").unwrap().1).unwrap();
+            assert_eq!(args["chat_id"], "chat-w2");
+            assert_eq!(args["local_only"], false);
+        }
+        assert!(read_mock_http_request(&bytes[..bytes.len() - 1]).is_err());
+        assert!(read_mock_http_request(&bytes[..10]).is_err());
+        assert!(read_mock_http_request(
+            b"POST / HTTP/1.1\r\nContent-Length: 16384\r\n\r\n".as_slice()
+        )
+        .is_err());
+        let get = "GET /control/status HTTP/1.1\r\n\r\n";
+        assert_eq!(read_mock_http_request(get.as_bytes()).unwrap(), get);
+    }
+
     #[test]
     fn relay_throttles_rollover_handles_429_cleanly_and_enforces_chatgpt_concurrency_cap() {
         use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -1195,18 +1316,22 @@ mod tests {
         let send_429_bg = Arc::clone(&send_429);
         let observe_429 = Arc::new(AtomicBool::new(false));
         let observe_429_bg = Arc::clone(&observe_429);
+        let terminal_mode = Arc::new(AtomicUsize::new(0));
+        let terminal_mode_bg = Arc::clone(&terminal_mode);
+        let attached_local_calls = Arc::new(AtomicUsize::new(0));
+        let attached_local_calls_bg = Arc::clone(&attached_local_calls);
+        let attached_remote_calls = Arc::new(AtomicUsize::new(0));
+        let attached_remote_calls_bg = Arc::clone(&attached_remote_calls);
 
         let srv = std::thread::spawn(move || {
-            use std::io::{Read, Write};
+            use std::io::Write;
             while !stop_bg.load(Ordering::Acquire) {
                 let Ok((mut stream, _)) = listener.accept() else {
                     std::thread::sleep(std::time::Duration::from_millis(5));
                     continue;
                 };
                 let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(2)));
-                let mut buf = vec![0u8; 16384];
-                let n = stream.read(&mut buf).unwrap_or(0);
-                let req = String::from_utf8_lossy(&buf[..n]);
+                let req = read_mock_http_request(&mut stream).unwrap();
                 let first = req.lines().next().unwrap_or("");
                 let mut parts = first.split_whitespace();
                 let method = parts.next().unwrap_or("");
@@ -1224,7 +1349,47 @@ mod tests {
                         })
                     }
                     ("POST", "/control/observe") => {
-                        if observe_429_bg.load(Ordering::Acquire) {
+                        let args: Value =
+                            serde_json::from_str(req.split_once("\r\n\r\n").unwrap().1).unwrap();
+                        let lane = args["lane_id"].as_str().unwrap_or_default();
+                        let mode = terminal_mode_bg.load(Ordering::Acquire);
+                        let chat = args["chat_id"].as_str().unwrap_or_default();
+                        if matches!(mode, 4 | 5) && matches!(chat, "chat-w1" | "chat-w2") {
+                            if args["local_only"] == true {
+                                attached_local_calls_bg.fetch_add(1, Ordering::AcqRel);
+                            } else {
+                                attached_remote_calls_bg.fetch_add(1, Ordering::AcqRel);
+                            }
+                            if args["local_only"] != true {
+                                json!({"state":"settled","generating":false,"chat_id":chat,
+                                    "assistant_text":"Earlier assistant reply"})
+                            } else if mode == 5 || !lane.is_empty() {
+                                json!({"state":"not_found","generating":false})
+                            } else if chat == "chat-w1" {
+                                json!({"state":"error","terminal_turn":true,"error":"backend_http_429",
+                                    "retry_after":"45","lane_id":"attached-failed","chat_id":chat,"generating":false})
+                            } else {
+                                json!({"state":"stopped","lane_id":"attached-stopped","chat_id":chat,"generating":false})
+                            }
+                        } else if mode > 0 && matches!(lane, "lane-terminal-1" | "lane-terminal-2")
+                        {
+                            let chat = if lane == "lane-terminal-1" {
+                                "chat-w1"
+                            } else {
+                                "chat-w2"
+                            };
+                            match (mode, lane) {
+                                (1, "lane-terminal-1") => json!({"state":"error",
+                                    "terminal_turn":true,"error":"backend_http_429",
+                                    "retry_after":"45","lane_id":lane,"chat_id":chat,"generating":false}),
+                                (2, "lane-terminal-1") => json!({"state":"in_progress",
+                                    "lane_id":lane,"chat_id":chat,"generating":true}),
+                                (2, _) => json!({"state":"stopped","lane_id":lane,
+                                    "chat_id":"wrong-chat","generating":false}),
+                                _ => json!({"state":"stopped","lane_id":lane,
+                                    "chat_id":chat,"generating":false}),
+                            }
+                        } else if observe_429_bg.load(Ordering::Acquire) {
                             json!({
                                 "state":"error","error":"backend_http_429",
                                 "detail":"Too many requests","retry_after":"45"
@@ -1234,6 +1399,9 @@ mod tests {
                         } else {
                             json!({"state":"in_progress","generating":true,"chat_id":"chat-w1"})
                         }
+                    }
+                    ("POST", "/control/stop") => {
+                        json!({"state":"error","error":"stop_unconfirmed"})
                     }
                     ("POST", "/control/send") => {
                         if send_429_bg.load(Ordering::Acquire) {
@@ -1448,6 +1616,7 @@ mod tests {
         // and applies Retry-After backoff >= 45s.
         observe_429.store(false, Ordering::Release);
         send_429.store(true, Ordering::Release);
+        let mut tracked_work = work.clone();
         work.participants.clear();
         work.pending_deliveries.push(ledger::PendingDelivery {
             delivery_id: "wakeup:test:1".to_owned(),
@@ -1493,6 +1662,115 @@ mod tests {
         );
         assert!(fresh_owners.chatgpt_cooldown_remaining_secs() > 0);
 
+        // A settled 429 is lane evidence, not a second admission failure.
+        // Confirm both normal stopped-worker failure and cancellation behavior
+        // against the same lane/chat identifiers, not a local stop flag.
+        send_429.store(false, Ordering::Release);
+        let clean_owners = owners::OwnerClient::new(owners::OwnerConfig {
+            provider_url: format!("http://{addr}"),
+            token_path: Some(root.join("control.token")),
+            home: root.clone(),
+            tmpdir: root.clone(),
+            codex_socket_override: None,
+            notify_cmd: Some("true".to_owned()),
+        });
+        let clean_relay = relay::RelayEngine::new(ledger.clone(), clean_owners.clone());
+
+        // Attached ref_id registrations have no dispatch lane. A prior remote
+        // reply is not evidence of success when the local tracked turn failed
+        // or stopped. Only a missing local turn permits remote fallback.
+        let mut attached = tracked_work.clone();
+        attached.work_id = "work_rl_attached_terminal".to_owned();
+        assert!(attached
+            .participants
+            .iter()
+            .all(|p| p.dispatch_id.is_none()));
+        ledger.save_work(&attached).unwrap();
+        terminal_mode.store(4, Ordering::Release);
+        assert_eq!(
+            clean_relay
+                .process_work(&attached.work_id)
+                .unwrap()
+                .participants_settled,
+            2
+        );
+        let settled = ledger.load_work(&attached.work_id).unwrap();
+        for (p, detail) in settled
+            .participants
+            .iter()
+            .zip(["backend_http_429", "ChatGPT turn stopped"])
+        {
+            assert_eq!(p.state, "failed");
+            assert_eq!(p.result_summary.as_deref(), Some(detail));
+        }
+        assert_eq!(attached_local_calls.load(Ordering::Acquire), 2);
+        assert_eq!(attached_remote_calls.load(Ordering::Acquire), 0);
+        assert_eq!(clean_owners.chatgpt_cooldown_remaining_secs(), 0);
+        assert_eq!(clean_owners.rate_limit_hits(), 0);
+
+        attached.work_id = "work_rl_attached_fallback".to_owned();
+        ledger.save_work(&attached).unwrap();
+        terminal_mode.store(5, Ordering::Release);
+        assert_eq!(
+            clean_relay
+                .process_work(&attached.work_id)
+                .unwrap()
+                .participants_settled,
+            2
+        );
+        let settled = ledger.load_work(&attached.work_id).unwrap();
+        for p in &settled.participants {
+            assert_eq!(p.state, "completed");
+            assert_eq!(p.result_summary.as_deref(), Some("Earlier assistant reply"));
+        }
+        assert_eq!(attached_local_calls.load(Ordering::Acquire), 4);
+        assert_eq!(attached_remote_calls.load(Ordering::Acquire), 2);
+
+        terminal_mode.store(1, Ordering::Release);
+        for (idx, p) in tracked_work.participants.iter_mut().enumerate() {
+            p.dispatch_id = Some(format!("lane-terminal-{}", idx + 1));
+        }
+        ledger.save_work(&tracked_work).unwrap();
+        assert_eq!(
+            clean_relay
+                .process_work(&tracked_work.work_id)
+                .unwrap()
+                .participants_settled,
+            2
+        );
+        let settled = ledger.load_work(&tracked_work.work_id).unwrap();
+        assert_eq!(settled.participants[0].state, "failed");
+        assert_eq!(
+            settled.participants[0].result_summary.as_deref(),
+            Some("backend_http_429")
+        );
+        assert_eq!(settled.participants[1].state, "failed");
+        assert_eq!(
+            settled.participants[1].result_summary.as_deref(),
+            Some("ChatGPT turn stopped")
+        );
+        for _ in 0..3 {
+            clean_relay.process_work(&tracked_work.work_id).unwrap();
+        }
+        assert_eq!(clean_owners.chatgpt_cooldown_remaining_secs(), 0);
+        assert_eq!(clean_owners.rate_limit_hits(), 0);
+
+        tracked_work.state = "cancelling".to_owned();
+        ledger.save_work(&tracked_work).unwrap();
+        terminal_mode.store(2, Ordering::Release);
+        clean_relay.process_work(&tracked_work.work_id).unwrap();
+        let pending = ledger.load_work(&tracked_work.work_id).unwrap();
+        assert_eq!(pending.state, "cancelling");
+        assert!(pending.participants.iter().all(|p| p.state == "running"));
+        terminal_mode.store(3, Ordering::Release);
+        clean_relay.process_work(&tracked_work.work_id).unwrap();
+        let cancelled = ledger.load_work(&tracked_work.work_id).unwrap();
+        assert_eq!(cancelled.state, "cancelled");
+        assert!(cancelled
+            .participants
+            .iter()
+            .all(|p| p.state == "cancelled"));
+
         stop.store(true, Ordering::Release);
         let _ = srv.join();
         let _ = fs::remove_dir_all(&root);
@@ -1530,20 +1808,22 @@ mod tests {
         let read_calls_c = read_calls.clone();
         let return_429 = Arc::new(AtomicBool::new(false));
         let return_429_c = return_429.clone();
+        let chat_timestamp = ledger::now_unix();
 
         let srv = thread::spawn(move || {
             let proj_chats: Vec<Value> = (0..15)
-                .map(|i| json!({"id": format!("pchat-{i}"), "title": format!("P{i}"), "update_time_unix": ledger::now_unix() - if i == 1 {1} else {601}}))
+                .map(|i| json!({"id": format!("pchat-{i}"), "title": format!("P{i}"), "update_time_unix": chat_timestamp - if i == 1 {1} else {601}}))
                 .collect();
             let top_chats: Vec<Value> = (0..15)
-                .map(|i| json!({"id": format!("tchat-{i}"), "title": format!("T{i}"), "update_time_unix": ledger::now_unix() - if i == 0 {2} else {601}}))
+                .map(|i| json!({"id": format!("tchat-{i}"), "title": format!("T{i}"), "update_time_unix": chat_timestamp - if i == 0 {2} else {601}}))
                 .collect();
             while !stop_c.load(Ordering::Acquire) {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
-                        let mut buf = [0u8; 8192];
-                        let n = stream.read(&mut buf).unwrap_or(0);
-                        let req = String::from_utf8_lossy(&buf[..n]);
+                        stream
+                            .set_read_timeout(Some(Duration::from_secs(2)))
+                            .unwrap();
+                        let req = read_mock_http_request(&mut stream).unwrap();
                         let first = req.lines().next().unwrap_or("");
                         let body = if first.starts_with("GET /control/status") {
                             json!({"state":"ok","pinned_send":true,"auth_state":"authenticated","account":{"account_id":"acc-m","id":"u1"}})

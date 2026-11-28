@@ -1204,14 +1204,7 @@
       return { state: "error", error: "chat_id_required", detail: "no chat_id provided or active" };
     }
     const res = await apiFetch(`/conversation/${encodeURIComponent(chatId)}`);
-    if (!res.ok || !res.json) {
-      return {
-        state: "error",
-        error: res.error || `backend_http_${res.status}`,
-        detail: res.text,
-        ...(res.retry_after ? { retry_after: res.retry_after } : {}),
-      };
-    }
+    if (!res.ok || !res.json) return backendFailure(res);
     let messages = extractLinearMessages(res.json);
     const userTurnCount = messages.filter((message) => message.role === "user").length;
     const limit = Math.max(1, Math.min(200, Number(opts.limit) || 50));
@@ -1370,9 +1363,10 @@
       };
     }
 
-    if (matchedTurn && !matchedTurn.generating && matchedTurn.error) {
+    if (matchedTurn && (opts.local_only || requestedLaneId || !requestedChatId) && matchedTurn.error) {
       return {
         state: "error",
+        terminal_turn: true,
         lane_id: matchedTurn.laneId,
         error: matchedTurn.error.code,
         detail: matchedTurn.error.detail,
@@ -1402,7 +1396,6 @@
 
     // Check server-side stream_status so remote mobile/web turns on this chat_id
     // are observed as in_progress before any automated wake-up or report injection.
-    let remoteStreamStatus = null;
     const ssRes = await apiFetch(
       `/conversation/${encodeURIComponent(chatId)}/stream_status`,
       { method: "GET" },
@@ -1419,19 +1412,21 @@
         generating: false,
       };
     }
-    if (ssRes.ok && ssRes.json && typeof ssRes.json.status === "string") {
-      remoteStreamStatus = ssRes.json.status;
-      if (remoteStreamStatus === "IS_STREAMING") {
-        return {
-          state: "in_progress",
-          ...(matchedTurn ? { lane_id: matchedTurn.laneId } : {}),
-          chat_id: chatId,
-          generating: true,
-          remote_stream_status: remoteStreamStatus,
-          message_id: (matchedTurn && matchedTurn.messageId) || null,
-          assistant_text: (matchedTurn && matchedTurn.assistantText) || "",
-        };
-      }
+    if (!ssRes.ok || !ssRes.json || typeof ssRes.json.status !== "string") {
+      return { ...backendFailure(ssRes), error: ssRes.error || "stream_status_unconfirmed",
+        chat_id: chatId, generating: false };
+    }
+    const remoteStreamStatus = ssRes.json.status;
+    if (remoteStreamStatus === "IS_STREAMING") {
+      return {
+        state: "in_progress",
+        ...(matchedTurn ? { lane_id: matchedTurn.laneId } : {}),
+        chat_id: chatId,
+        generating: true,
+        remote_stream_status: remoteStreamStatus,
+        message_id: (matchedTurn && matchedTurn.messageId) || null,
+        assistant_text: (matchedTurn && matchedTurn.assistantText) || "",
+      };
     }
 
     const rd = await readChat({ chat_id: chatId, limit: 10 });
@@ -1462,21 +1457,25 @@
 
   async function stopSingleTurn(turn, client) {
     turn.stopped = true;
-    turn.generating = false;
-    if (client && turn.requestId) {
+    if (!turn.generating) return true;
+    if (turn.dispatched) {
+      // A stop requested while startCompletionStream is awaiting its handle
+      // is not evidence of a terminal turn. Retry against that same handle.
+      if (!client || !turn.requestId || !turn.chatId) return false;
+      try {
+        await client.stopCompletion(
+          { conversation_id: turn.chatId },
+          { conduitToken: turn.conduitToken || undefined }
+        );
+      } catch (_) {
+        return !turn.generating;
+      }
       try {
         client.cancelStream(turn.requestId);
       } catch (_) {}
-      if (turn.chatId) {
-        try {
-          await client.stopCompletion(
-            { conversation_id: turn.chatId },
-            { conduitToken: turn.conduitToken || undefined }
-          );
-        } catch (_) {}
-      }
     }
     turn.resolveDone();
+    return true;
   }
 
   async function stopGeneration(opts = {}) {
@@ -1506,14 +1505,17 @@
         };
       }
       const stoppedChatIds = [];
+      let stoppedCount = 0;
       for (const t of targets) {
-        await stopSingleTurn(t, client);
-        if (t.chatId) stoppedChatIds.push(t.chatId);
+        if (await stopSingleTurn(t, client)) {
+          stoppedCount++;
+          if (t.chatId) stoppedChatIds.push(t.chatId);
+        }
       }
       return {
-        state: "stopped",
-        stopped: true,
-        stopped_count: targets.length,
+        state: stoppedCount === targets.length ? "stopped" : "in_progress",
+        stopped: stoppedCount === targets.length,
+        stopped_count: stoppedCount,
         stopped_chat_ids: stoppedChatIds,
         remaining_active_count: generatingTurns().length,
       };
@@ -1539,10 +1541,10 @@
       };
     }
 
-    await stopSingleTurn(turn, client);
+    const stopped = await stopSingleTurn(turn, client);
     return {
-      state: "stopped",
-      stopped: true,
+      state: stopped ? "stopped" : "in_progress",
+      stopped,
       lane_id: turn.laneId,
       chat_id: turn.chatId,
       remaining_active_count: generatingTurns().length,
@@ -1819,8 +1821,8 @@
     });
 
     let done = false;
-    let dispatched = false;
     const turn = {
+      dispatched: false,
       laneId,
       startedAt: new Date().toISOString(),
       requestId: null,
@@ -1841,7 +1843,7 @@
         done = true;
         turn.generating = false;
         resolveDone();
-        if (dispatched && opts.orch_wake === true && typeof globalThis.__termuxOrchWake === "function") {
+        if (turn.dispatched && opts.orch_wake === true && typeof globalThis.__termuxOrchWake === "function") {
           globalThis.__termuxOrchWake("settled");
         }
       },
@@ -2281,7 +2283,7 @@
         turn.resolveDone();
         return { state: "stopped", lane_id: laneId };
       }
-      dispatched = true;
+      turn.dispatched = true;
       const handle = await client.startCompletionStream({
         request: requestPayload,
         expectedAccountId: dispatchAccountId || undefined,

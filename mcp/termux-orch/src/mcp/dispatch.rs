@@ -513,6 +513,14 @@ impl OrchMcpHandler {
                     }
                 }
                 Err(error) => {
+                    if backend == "codex" && error.starts_with("codex_preflight_failed: ") {
+                        let original = &mut work.participants[position];
+                        original.state = "failed".to_owned();
+                        original.result_summary = Some(error.clone());
+                        if let Err(save_error) = self.ledger.save_work(&work) {
+                            return (fail("ledger_write_failed", save_error.to_string()), true);
+                        }
+                    }
                     let original = &work.participants[position];
                     return (
                         json!({"state":if original.state == "failed" {"error"} else {"pending"},
@@ -648,26 +656,19 @@ impl OrchMcpHandler {
                 false,
             );
         }
-        let all_of: Vec<String> = obj
-            .get("all_of")
-            .and_then(Value::as_array)
-            .map(|a| {
-                a.iter()
-                    .filter_map(Value::as_str)
-                    .map(ToOwned::to_owned)
-                    .collect()
-            })
-            .unwrap_or_default();
-        let any_of: Vec<String> = obj
-            .get("any_of")
-            .and_then(Value::as_array)
-            .map(|a| {
-                a.iter()
-                    .filter_map(Value::as_str)
-                    .map(ToOwned::to_owned)
-                    .collect()
-            })
-            .unwrap_or_default();
+        let participants = |key| -> Vec<String> {
+            obj.get(key)
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(Value::as_str)
+                        .map(ToOwned::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        let all_of = participants("all_of");
+        let any_of = participants("any_of");
         if let Some(id) = all_of
             .iter()
             .chain(&any_of)

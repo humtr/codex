@@ -116,13 +116,13 @@ impl RelayEngine {
         work: &WorkRecord,
         participant: &Participant,
     ) -> Result<crate::owners::ChatGptObservation, String> {
-        if participant.dispatch_id.is_some() {
-            let local = self
-                .owners
-                .chatgpt_observe_chat(&participant.ref_id, true)?;
-            if local.state != "not_found" {
-                return Ok(local);
-            }
+        let local = self.owners.chatgpt_observe_tracked(
+            &participant.ref_id,
+            participant.dispatch_id.as_deref(),
+            true,
+        )?;
+        if local.state != "not_found" {
+            return Ok(local);
         }
         let key = format!("{}:{}", work.work_id, participant.participant_id);
         let mut checks = self
@@ -279,15 +279,23 @@ impl RelayEngine {
                                     "completed".to_owned(),
                                     obs.assistant_text,
                                 ));
+                            } else if !obs.generating && obs.state == "stopped" {
+                                newly_settled.push((
+                                    idx,
+                                    "failed".to_owned(),
+                                    "ChatGPT turn stopped".to_owned(),
+                                ));
                             } else if obs.state == "error" {
                                 let detail =
                                     obs.error.unwrap_or_else(|| "chatgpt_turn_error".to_owned());
-                                if matches!(
-                                    detail.as_str(),
-                                    "backend_http_429"
-                                        | "retry_after_cooldown"
-                                        | "local_rate_limit"
-                                ) {
+                                if !obs.terminal_turn
+                                    && matches!(
+                                        detail.as_str(),
+                                        "backend_http_429"
+                                            | "retry_after_cooldown"
+                                            | "local_rate_limit"
+                                    )
+                                {
                                     relay_log(
                                         "worker_observe_rate_limited",
                                         json!({
@@ -296,7 +304,7 @@ impl RelayEngine {
                                             "retry_after_secs": obs.retry_after_secs.unwrap_or(DEFAULT_429_COOLDOWN_SECS)
                                         }),
                                     );
-                                } else {
+                                } else if obs.terminal_turn && !obs.generating {
                                     newly_settled.push((idx, "failed".to_owned(), detail));
                                 }
                             }
@@ -861,7 +869,8 @@ impl RelayEngine {
                     let _ = self.owners.chatgpt_stop_lane(dispatch, ref_id);
                     false
                 } else {
-                    matches!(observed["state"].as_str(), Some("settled" | "error"))
+                    matches!(observed["state"].as_str(), Some("settled" | "stopped"))
+                        || (observed["state"] == "error" && observed["terminal_turn"] == true)
                 }
             }
             _ => false,

@@ -11,7 +11,7 @@ const DRIVER_SRC = fs.readFileSync(
   "utf8"
 );
 
-function createMockEnv({ url = "https://chatgpt.com/c/conv-12345678", apiMap = {}, completionBehavior, localFunctionSubmit, now = Date.now, afterBackendCall = () => {}, orchWake = () => {} } = {}) {
+function createMockEnv({ url = "https://chatgpt.com/c/conv-12345678", apiMap = {}, completionBehavior, stopBehavior, localFunctionSubmit, now = Date.now, afterBackendCall = () => {}, orchWake = () => {} } = {}) {
   const startCalls = [];
   const cancelCalls = [];
   const stopCalls = [];
@@ -72,6 +72,7 @@ function createMockEnv({ url = "https://chatgpt.com/c/conv-12345678", apiMap = {
     },
     async stopCompletion(body, meta) {
       stopCalls.push({ body, meta });
+      if (stopBehavior) return stopBehavior(body, meta);
     },
   };
 
@@ -1627,4 +1628,115 @@ test("stopGeneration during send pacing cancels before stream dispatch and consu
   });
   assert.equal(after.state, "settled", JSON.stringify(after));
   assert.equal(startCalls.length, 4);
+});
+
+test("historical send admission and async 429 are lane outcomes, not chat readiness", async () => {
+  let time = 100_000;
+  let remoteStatus = "COMPLETE";
+  let callback;
+  let streamReads = 0;
+  let hold = false;
+  const chat = "conv-rate-history";
+  const { driver, startCalls } = createMockEnv({
+    now: () => time,
+    apiMap: {
+      "GET /backend-api/me": { status: 200, body: { account_id: "fixture" } },
+      [`GET /backend-api/conversation/${chat}`]: {
+        status: 200, body: { title: "Fixture", current_node: "n1", mapping: {
+          n1: { parent: null, message: { id: "m1", author: { role: "user" },
+            content: { content_type: "text", parts: ["Prior turn"] } } }
+        } },
+      },
+      [`GET /backend-api/conversation/${chat}/stream_status`]: {
+        status: 200, body: () => { streamReads++; return { status: remoteStatus }; },
+      },
+    },
+    completionBehavior(args) {
+      callback = args;
+      if (!hold) args.onComplete();
+      return { streamRequestId: "stream-history" };
+    },
+  });
+  for (let i = 0; i < 3; i++) {
+    assert.equal((await driver.sendMessage({ prompt: "burst", lane_id: `burst-${i}`, wait_ms: 10 })).state, "settled");
+  }
+  const rejected = await driver.sendMessage({ chat_id: chat, lane_id: "rejected", prompt: "retry", wait_ms: 10 });
+  assert.equal(rejected.error, "local_rate_limit");
+  assert.equal(startCalls.length, 3);
+  const history = await driver.observeChat({ chat_id: chat, lane_id: "rejected", local_only: true });
+  assert.equal(history.error, "local_rate_limit");
+  assert.equal(history.terminal_turn, true);
+  time += 6000;
+  remoteStatus = "IS_STREAMING";
+  assert.equal((await driver.observeChat({ chat_id: chat })).state, "in_progress");
+  remoteStatus = "COMPLETE";
+  assert.equal((await driver.observeChat({ chat_id: chat })).state, "settled");
+  assert.equal(streamReads, 2, "must consult the current stream rather than the terminal error");
+  time += 6000;
+  hold = true;
+  const accepted = await driver.sendMessage({ chat_id: chat, lane_id: "accepted", prompt: "retry", wait_ms: 0 });
+  assert.equal(accepted.state, "in_progress");
+  assert.equal(startCalls.length, 4);
+  callback.onError({ responseStatus: 429, message: "rate limited", responseHeaders: { "Retry-After": "5" } });
+  for (let i = 0; i < 3; i++) {
+    const terminal = await driver.observeChat({ lane_id: "accepted", chat_id: chat, local_only: true });
+    assert.equal(terminal.error, "backend_http_429");
+    assert.equal(terminal.terminal_turn, true);
+  }
+  time += 6000;
+  const attached = await driver.observeChat({ chat_id: chat, local_only: true });
+  assert.equal(attached.error, "backend_http_429");
+  assert.equal(attached.terminal_turn, true);
+  assert.equal(attached.lane_id, "accepted");
+  assert.equal(attached.chat_id, chat);
+  assert.equal((await driver.observeChat({ chat_id: chat, lane_id: "missing", local_only: true })).state, "not_found");
+  assert.equal((await driver.observeChat({ chat_id: "untracked-chat", local_only: true })).state, "not_found");
+  assert.equal((await driver.observeChat({ chat_id: chat })).state, "settled");
+  hold = false;
+  time += 6000;
+  assert.equal((await driver.sendMessage({ chat_id: chat, lane_id: "recovered", prompt: "resume", wait_ms: 10 })).state, "settled");
+  assert.equal(startCalls.length, 5);
+});
+
+test("stop remains in progress for pending handle and rejected owner stop", async () => {
+  let releaseHandle;
+  let entered;
+  const enteredStream = new Promise(resolve => { entered = resolve; });
+  const handle = new Promise(resolve => { releaseHandle = resolve; });
+  let allowStop = false;
+  const { driver, stopCalls, cancelCalls } = createMockEnv({
+    apiMap: { "GET /backend-api/me": { status: 200, body: { account_id: "fixture" } } },
+    completionBehavior(args) {
+      args.onUpdate({ conversationId: "conv-stop-confirm" });
+      entered();
+      return handle;
+    },
+    stopBehavior() {
+      if (!allowStop) throw new Error("stop rejected by owner");
+    },
+  });
+  const send = driver.sendMessage({ lane_id: "lane-stop-confirm", prompt: "long turn", wait_ms: 0 });
+  await enteredStream;
+  const stop = () => driver.stopGeneration({ lane_id: "lane-stop-confirm", chat_id: "conv-stop-confirm" });
+  const observe = () => driver.observeChat({ lane_id: "lane-stop-confirm", chat_id: "conv-stop-confirm", local_only: true });
+  assert.equal((await stop()).state, "in_progress");
+  assert.equal((await observe()).state, "in_progress");
+  assert.equal(stopCalls.length, 0);
+  releaseHandle({ streamRequestId: "stream-stop-confirm" });
+  assert.equal((await send).state, "in_progress");
+  assert.equal(stopCalls.length, 1);
+  assert.equal(cancelCalls.length, 0);
+  assert.equal((await observe()).state, "in_progress");
+  assert.equal((await stop()).state, "in_progress");
+  allowStop = true;
+  assert.equal((await stop()).state, "stopped");
+  const confirmed = await observe();
+  assert.equal(confirmed.state, "stopped");
+  assert.equal(confirmed.lane_id, "lane-stop-confirm");
+  assert.equal(confirmed.chat_id, "conv-stop-confirm");
+  const attached = await driver.observeChat({ chat_id: "conv-stop-confirm", local_only: true });
+  assert.equal(attached.state, "stopped");
+  assert.equal(attached.lane_id, "lane-stop-confirm");
+  assert.equal(attached.chat_id, "conv-stop-confirm");
+  assert.deepEqual(cancelCalls, ["stream-stop-confirm"]);
 });

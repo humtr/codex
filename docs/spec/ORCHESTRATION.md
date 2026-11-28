@@ -158,7 +158,8 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
      starts the fixed shell check after the named prerequisites succeed, using
      the Work ledger and shell identity receipt. It reports success only
      after the check and all required verification settle. If a prerequisite
-     fails, it preserves that result and does not start the check.
+     fails, it preserves that result and does not start the check. Promotion or manual
+     Lead rollover cannot introduce another owner while this continuation is armed.
 
 ---
 
@@ -226,7 +227,10 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
   interruption of its identified Codex turn or ChatGPT lane. The shell writer
   sends `SIGTERM` and escalates to `SIGKILL` for its command's process group.
   It waits for live members of its session to exit before it writes the
-  receipt. Cancellation stays pending while an owner is unconfirmed. Attached
+  receipt. ChatGPT stop requests stay pending until the identified lane has
+  actually terminated or the owner confirms stop; a pending stream handle or
+  failed stop is not a terminal receipt. A stopped worker is not a successful
+  worker. Cancellation stays pending while an owner is unconfirmed. Attached
   sessions retain their original owner.
 - **Verification and completion:** A registered verifier supplies a result
   separately from the terminal status of its turn. A model verifier returns
@@ -255,8 +259,10 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
   looping indefinitely.
   - **Local vs. remote polling separation:** Routine relay ticks use Shell
     exit receipts, Codex UDS state, and the Provider's in-memory ChatGPT turns.
-    Participants without a tracked turn use a known-chat remote observation at
-    most once per minute. Automatic Lead rollover reacts to tracked context-limit
+    Participant settlement first observes the local tracked turn by chat and,
+    when available, its dispatch lane; only a missing tracked turn uses a
+    known-chat remote observation at most once per minute. Automatic Lead
+    rollover reacts to tracked context-limit
     errors. The optional turn-count trigger reads history at most once per
     minute per Work by default. Explicit delivery and reconciliation use the
     original destination and the Provider admission limits.
@@ -267,6 +273,10 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
     `delivery_receipt_unconfirmed`). Marker readback propagates provider errors
     as errors rather than `not_found`, and bounded ambiguous delivery
     reconciliation escalates to `waiting_user` + `termux-notification`.
+    Tracked terminal lane errors are turn outcomes, not new observation
+    failures: they settle the affected worker without refreshing cooldown.
+    Chat readiness checks current local activity and server stream status,
+    not a previous terminal lane error.
   - **Dispatch preflight & structured telemetry:** `orch_dispatch` fails fast
     before creating worktrees when ChatGPT is in `429` cooldown or at the
     ChatGPT concurrency cap. `termux-orch relay` emits concise secret-free
@@ -309,11 +319,17 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
   IDs from the settled operation. Relay runs the owner calls under one owner
   gate. It reports an interrupted execution as `delivery_unknown` and
   reconciles any persisted Work intent without replaying an uncertain mutation.
-  Rename and manual rollover extension arguments include a `call_id`. Local
+  Rename and manual rollover extension arguments include a `call_id`. Their
+  nested IDs share admission collision checks with local MCP receipts. An
+  interrupted read-with-rebind must not return the inner rebind receipt as a
+  successful read; if the outer result was not saved it reports
+  `delivery_unknown` and allows a separate read without rebinding. Local
   reports persist delivery and can request an immediate relay wake.
   `reconcile_delivery` requests a wake and returns its acceptance separately
   from delivery. Codex model launches check the selected daemon and its
-  authentication requirement before submitting a turn.
+  authentication requirement before any thread start/resume or turn start,
+  including promotion, rollover, automatic verification and wake delivery.
+  Known pre-dispatch authentication rejection leaves no uncertain launch.
 - **Provider admission and wake.** The AppHost page driver budgets reads
   (five burst, 0.5/s refill, 25 per rolling minute) and sends/writes (three
   burst, 0.2/s refill, ten per rolling minute). `/me` and stop are exempt.
@@ -372,7 +388,9 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
   resubmit the creation.
 - Callers can fence a Work mutation with `expected_lead_generation`. Where
   accepted as a fence, `lead_ref_id` must also match the current Lead. A
-  mismatch returns `stale_lead_generation`. Omission preserves legacy callers.
+  mismatch returns `stale_lead_generation`. In manual rollover the old
+  reference is only a fence, never the new Lead binding. Omission preserves
+  legacy callers.
 - Replay starts at the saved `consumed_seq`, in ascending batches. The relay
   confirms each exact user-message marker in the replacement chat before
   advancing the cursor. An uncertain write remains pending for reconciliation

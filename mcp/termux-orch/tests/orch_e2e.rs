@@ -489,6 +489,12 @@ fn fixed_shell_continuation_survives_relay_reentry_without_double_execution() {
             "command":"test \"$(cat artifact)\" = build-ok && printf 'check\\n' >> runs"}}),
         );
         assert_eq!(wait["state"], "ok", "{wait}");
+        let rollover = mcp.call(
+            "orch_call",
+            json!({"action":"lead_rollover","arguments":{
+            "call_id":format!("rollover-{case}"),"work_id":id,"lead_kind":"codex"}}),
+        );
+        assert_eq!(rollover["error"], "work_unavailable", "{rollover}");
         drop(mcp);
         assert!(command().arg("tick").output().unwrap().status.success());
         assert!(!cwd.join("runs").exists());
@@ -1323,7 +1329,26 @@ fn cancelling_shell_plan_escalates_when_worker_ignores_term() {
     fs::remove_dir_all(root).unwrap();
 }
 
-fn mock_codex_daemon(mut stream: std::os::unix::net::UnixStream, preflight: bool) {
+fn mock_codex_daemon(stream: std::os::unix::net::UnixStream, preflight: bool) {
+    mock_codex_rpc(stream, |request| {
+        let id = &request["id"];
+        match request["method"].as_str().unwrap() {
+            "account/read" => {
+                assert_eq!(request["params"]["refreshToken"], false);
+                json!({"id":id,"result":{"requiresOpenaiAuth":true,"account":{"type":"chatgpt"}}})
+            }
+            "thread/start" if !preflight => {
+                json!({"id":id,"error":{"code":-32000,"message":"fixture rejected thread/start"}})
+            }
+            method => panic!("unexpected daemon method {method}"),
+        }
+    });
+}
+
+fn mock_codex_rpc(
+    mut stream: std::os::unix::net::UnixStream,
+    mut reply_to: impl FnMut(&Value) -> Value,
+) {
     use std::io::Read;
     let mut reader = BufReader::new(stream.try_clone().unwrap());
     let mut key = String::new();
@@ -1383,18 +1408,17 @@ fn mock_codex_daemon(mut stream: std::os::unix::net::UnixStream, preflight: bool
         let reply = match request["method"].as_str().unwrap() {
             "initialize" => json!({"id":id,"result":{"userAgent":"fixture"}}),
             "initialized" => continue,
-            "account/read" if preflight => {
-                assert_eq!(request["params"]["refreshToken"], false);
-                json!({"id":id,"result":{"requiresOpenaiAuth":true,"account":{"type":"chatgpt"}}})
-            }
-            "thread/start" if !preflight => {
-                json!({"id":id,"error":{"code":-32000,"message":"fixture rejected thread/start"}})
-            }
-            method => panic!("unexpected daemon method {method}"),
+            _ => reply_to(&request),
         };
         let data = reply.to_string();
-        assert!(data.len() < 126);
-        stream.write_all(&[0x81, data.len() as u8]).unwrap();
+        if data.len() < 126 {
+            stream.write_all(&[0x81, data.len() as u8]).unwrap();
+        } else {
+            stream.write_all(&[0x81, 126]).unwrap();
+            stream
+                .write_all(&u16::try_from(data.len()).unwrap().to_be_bytes())
+                .unwrap();
+        }
         stream.write_all(data.as_bytes()).unwrap();
     }
 }
@@ -1587,8 +1611,261 @@ fn mcp_short_wait_returns_settled_result_with_live_relay_and_prevalidates_bad_ar
     );
     assert!(ok_res["operation_id"].as_str().is_some(), "{ok_res}");
 
+    let wid = ok_res["work_id"].as_str().unwrap();
+    let wait = |id: &str| {
+        json!({"action":"wait_set","call_id":id,"work_id":wid,
+        "on_user_event":true,"wake_target":"front","deadline_secs":60})
+    };
+    let rename = |id: &str| {
+        json!({"action":"rename_session","arguments":{
+        "call_id":id,"backend":"chatgpt","ref_id":"chat-fixture","title":"No replay"}})
+    };
+    let local = mcp.call("orch_dispatch", wait("local-first"));
+    assert_eq!(local["state"], "ok", "{local}");
+    for request in [
+        rename("local-first"),
+        json!({"action":"lead_rollover","arguments":{
+        "work_id":wid,"call_id":"local-first","lead_kind":"codex"}}),
+    ] {
+        let conflict = mcp.call("orch_call", request);
+        assert_eq!(
+            conflict["error"], "orch_call_id_payload_conflict",
+            "{conflict}"
+        );
+        assert_eq!(conflict["executed"], false);
+    }
+    let operation = mcp.call("orch_call", rename("owner-first"));
+    assert!(operation["operation_id"].is_string(), "{operation}");
+    let reverse = mcp.call("orch_dispatch", wait("owner-first"));
+    assert_eq!(
+        reverse["error"], "orch_call_id_payload_conflict",
+        "{reverse}"
+    );
+
     drop(mcp);
     let _ = relay.kill();
     let _ = relay.wait();
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn codex_launches_preflight_and_rollover_fence_creates_a_fresh_thread() {
+    use std::sync::{
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        Arc,
+    };
+    let root = tmp_dir("orch-auth-fence");
+    let state = root.join("state");
+    let sock = root.join("daemon.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&sock).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let authenticated = Arc::new(AtomicBool::new(false));
+    let one_admission = Arc::new(AtomicBool::new(false));
+    let stop = Arc::new(AtomicBool::new(false));
+    let starts = Arc::new(AtomicUsize::new(0));
+    let resumes = Arc::new(AtomicUsize::new(0));
+    let turns = Arc::new(AtomicUsize::new(0));
+    let (auth_bg, one_bg, stop_bg, starts_bg, resumes_bg, turns_bg) = (
+        authenticated.clone(),
+        one_admission.clone(),
+        stop.clone(),
+        starts.clone(),
+        resumes.clone(),
+        turns.clone(),
+    );
+    let daemon = std::thread::spawn(move || {
+        while !stop_bg.load(Ordering::Acquire) {
+            let (stream, _) = match listener.accept() {
+                Ok(pair) => pair,
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                    continue;
+                }
+                Err(e) => panic!("{e}"),
+            };
+            let mut checked = false;
+            mock_codex_rpc(stream, |request| {
+                let id = &request["id"];
+                let params = &request["params"];
+                let result = match request["method"].as_str().unwrap() {
+                    "account/read" => {
+                        assert_eq!(params["refreshToken"], false);
+                        checked =
+                            auth_bg.load(Ordering::Acquire) || one_bg.swap(false, Ordering::AcqRel);
+                        json!({"requiresOpenaiAuth":true,"account":if checked {json!({"type":"chatgpt"})} else {Value::Null}})
+                    }
+                    "thread/start" => {
+                        assert!(
+                            checked,
+                            "thread/start must follow account/read on the same connection"
+                        );
+                        let n = starts_bg.fetch_add(1, Ordering::AcqRel) + 1;
+                        json!({"thread":{"id":format!("fresh-thread-{n}")}})
+                    }
+                    "thread/resume" => {
+                        assert!(
+                            checked,
+                            "thread/resume must follow account/read on the same connection"
+                        );
+                        resumes_bg.fetch_add(1, Ordering::AcqRel);
+                        json!({"thread":{"id":params["threadId"]}})
+                    }
+                    "turn/start" => {
+                        assert!(
+                            checked,
+                            "turn/start must follow account/read on the same connection"
+                        );
+                        let n = turns_bg.fetch_add(1, Ordering::AcqRel) + 1;
+                        json!({"turn":{"id":format!("fresh-turn-{n}")}})
+                    }
+                    "thread/name/set" => json!({}),
+                    "thread/read" => {
+                        json!({"thread":{"id":params["threadId"],"status":{"type":"idle"},"turns":[]}})
+                    }
+                    method => panic!("unexpected daemon method {method}"),
+                };
+                json!({"id":id,"result":result})
+            });
+        }
+    });
+    let command = || {
+        let mut cmd = Command::new(bin_path());
+        cmd.env("ORCH_STATE_DIR", &state)
+            .env("ORCH_RECEIPT_DIR", root.join("receipts"))
+            .env("ORCH_CODEX_SOCKET", &sock)
+            .env("CHATGPT_PROVIDER_URL", "http://127.0.0.1:1")
+            .env("ORCH_NOTIFY_CMD", "true")
+            .env("ORCH_MCP_SHORT_WAIT_MS", "0");
+        cmd
+    };
+    let mut mcp = Mcp::start(&mut command());
+    let direct = mcp.call(
+        "orch_work",
+        json!({"action":"create","call_id":"direct",
+        "tier":"direct","title":"Promote","goal":"Reject unauthenticated promotion"}),
+    );
+    let direct_id = direct["work_id"].as_str().unwrap();
+    let rejected = mcp.call(
+        "orch_work",
+        json!({"action":"promote","call_id":"promote",
+        "work_id":direct_id,"lead_kind":"codex"}),
+    );
+    assert_eq!(rejected["error"], "codex_preflight_failed", "{rejected}");
+    let direct_read = mcp.call("orch_works", json!({"action":"read","work_id":direct_id}));
+    assert!(direct_read["work"]["lead"].is_null());
+    assert!(direct_read["work"]["pending_lead"].is_null());
+
+    let old = mcp.call(
+        "orch_work",
+        json!({"action":"create","call_id":"old",
+        "tier":"orchestrated","title":"Rollover","goal":"Fresh lead",
+        "lead_kind":"codex","lead_ref_id":"old-thread"}),
+    );
+    let old_id = old["work_id"].as_str().unwrap();
+    let rollover = |mcp: &mut Mcp, call_id: &str, wid: &str, fence: &str| {
+        mcp.call(
+            "orch_call",
+            json!({"action":"lead_rollover","arguments":{
+            "call_id":call_id,"work_id":wid,"expected_lead_generation":1,
+            "lead_kind":"codex","lead_ref_id":fence}}),
+        )
+    };
+    let rejected = rollover(&mut mcp, "rollover-denied", old_id, "old-thread");
+    assert_eq!(rejected["error"], "codex_preflight_failed", "{rejected}");
+    // Admission was authenticated but the actual dispatch connection was not.
+    one_admission.store(true, Ordering::Release);
+    let race = rollover(&mut mcp, "rollover-race", old_id, "old-thread");
+    assert_eq!(race["error"], "codex_preflight_failed", "{race}");
+    let unchanged = mcp.call("orch_works", json!({"action":"read","work_id":old_id}));
+    assert_eq!(unchanged["work"]["lead"]["ref_id"], "old-thread");
+    assert_eq!(unchanged["work"]["lead"]["generation"], 1);
+    assert!(unchanged["work"]["pending_lead"].is_null());
+
+    // Automatic verifier admission must not create a phantom dispatching V.
+    let review = mcp.call("orch_work", json!({"action":"create","call_id":"review",
+        "tier":"direct","title":"Auto review","goal":"Verify","verification_policy":"independent_review",
+        "delivery_mode":"notify_only"}));
+    let review_id = review["work_id"].as_str().unwrap();
+    let requested = mcp.call(
+        "orch_report",
+        json!({"action":"complete","call_id":"review-request",
+        "work_id":review_id,"summary":"Done","review_cwd":root,"flush_now":false}),
+    );
+    assert_eq!(requested["error"], "verification_required", "{requested}");
+    assert!(command().arg("tick").output().unwrap().status.success());
+    let reviewed = mcp.call("orch_works", json!({"action":"read","work_id":review_id}));
+    assert_eq!(reviewed["work"]["state"], "waiting_user", "{reviewed}");
+    assert_eq!(
+        reviewed["work"]["participants"].as_array().unwrap().len(),
+        0
+    );
+
+    // A real shell receipt triggers a pending Lead wake. Its known auth
+    // rejection must not leave a delivery dispatch to reconcile.
+    let wake = mcp.call(
+        "orch_work",
+        json!({"action":"create","call_id":"wake",
+        "tier":"orchestrated","title":"Wake","goal":"Resume an existing lead",
+        "lead_kind":"codex","lead_ref_id":"wake-thread"}),
+    );
+    let wake_id = wake["work_id"].as_str().unwrap();
+    let worker = mcp.call(
+        "orch_dispatch",
+        json!({"action":"register_worker","call_id":"wake-worker",
+        "work_id":wake_id,"backend":"shell","command":"true","cwd":root}),
+    );
+    assert_eq!(worker["state"], "ok", "{worker}");
+    let exit = state.join("jobs").join(wake_id).join("shell/W1.exit.json");
+    assert_eq!(wait_for(|| json_file(&exit))["exit_code"], 0);
+    let wait = mcp.call(
+        "orch_dispatch",
+        json!({"action":"wait_set","call_id":"wake-wait",
+        "work_id":wake_id,"all_of":["W1"],"wake_target":"lead","on_user_event":false}),
+    );
+    assert_eq!(wait["state"], "ok", "{wait}");
+    assert!(command().arg("tick").output().unwrap().status.success());
+    let waiting = mcp.call("orch_works", json!({"action":"read","work_id":wake_id}));
+    let delivery = &waiting["work"]["pending_deliveries"][0];
+    assert!(delivery["dispatch"].is_null(), "{waiting}");
+    assert!(
+        delivery["last_error"]
+            .as_str()
+            .unwrap()
+            .contains("codex_authentication_required"),
+        "{delivery}"
+    );
+    assert_eq!(starts.load(Ordering::Acquire), 0);
+    assert_eq!(resumes.load(Ordering::Acquire), 0);
+    assert_eq!(turns.load(Ordering::Acquire), 0);
+
+    // A valid fence is not a binding request: same-kind and cross-kind
+    // rollovers must create distinct new owner threads and turns.
+    authenticated.store(true, Ordering::Release);
+    let stale = rollover(&mut mcp, "stale-fence", old_id, "wrong-thread");
+    assert_eq!(stale["error"], "stale_lead_generation", "{stale}");
+    let fresh = rollover(&mut mcp, "fresh-fence", old_id, "old-thread");
+    assert_eq!(fresh["state"], "ok", "{fresh}");
+    assert_eq!(fresh["lead"]["generation"], 2);
+    assert_eq!(fresh["lead"]["ref_id"], "fresh-thread-1");
+    assert_eq!(fresh["lead"]["turn_id"], "fresh-turn-1");
+    let cross = mcp.call(
+        "orch_work",
+        json!({"action":"create","call_id":"cross",
+        "tier":"orchestrated","title":"Cross-kind","goal":"Fresh codex lead",
+        "lead_kind":"chatgpt","lead_ref_id":"old-chat"}),
+    );
+    let cross_id = cross["work_id"].as_str().unwrap();
+    let fresh = rollover(&mut mcp, "fresh-cross", cross_id, "old-chat");
+    assert_eq!(fresh["state"], "ok", "{fresh}");
+    assert_eq!(fresh["lead"]["generation"], 2);
+    assert_eq!(fresh["lead"]["kind"], "codex");
+    assert_eq!(fresh["lead"]["ref_id"], "fresh-thread-2");
+    assert_eq!(fresh["lead"]["turn_id"], "fresh-turn-2");
+    assert_eq!(starts.load(Ordering::Acquire), 2);
+    assert_eq!(resumes.load(Ordering::Acquire), 0);
+    assert_eq!(turns.load(Ordering::Acquire), 2);
+    drop(mcp);
+    stop.store(true, Ordering::Release);
+    daemon.join().unwrap();
     fs::remove_dir_all(root).unwrap();
 }

@@ -128,7 +128,7 @@ impl<'a> Rollover<'a> {
             && self
                 .owners
                 .chatgpt_observe(&lead.ref_id)
-                .is_ok_and(|obs| !obs.generating)
+                .is_ok_and(|obs| obs.state == "settled" && !obs.generating)
         {
             return Some(format!("turn threshold ({count}/{threshold})"));
         }
@@ -245,10 +245,7 @@ impl<'a> Rollover<'a> {
         }
 
         let title = format_lead_title(&work.session_prefixes, generation, &work.title);
-        let renamed = self.owners.chatgpt_rename_chat(&chat_id, &title)?;
-        if renamed["state"] != "ok" {
-            return Err("lead_rename_failed".to_owned());
-        }
+        self.owners.chatgpt_rename_chat(&chat_id, &title)?;
         let mut next = work.lead.clone().unwrap();
         if !next
             .history
@@ -336,7 +333,7 @@ impl<'a> Rollover<'a> {
             work.lead.as_mut().unwrap().rollover_internal_turns += 1;
             self.save(work)?;
         } else if replay.dispatched_until.is_none()
-            && !self.owners.chatgpt_observe(&chat_id)?.generating
+            && self.owners.chatgpt_observe(&chat_id)?.state == "settled"
         {
             let payload = serde_json::to_string(&events).map_err(|e| e.to_string())?;
             let instruction = if last_seq >= replay.through_seq {

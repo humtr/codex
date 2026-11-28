@@ -313,6 +313,19 @@ impl RelayEngine {
         cwd: &Path,
         now: u64,
     ) -> Result<(), String> {
+        let profile = work
+            .lead
+            .as_ref()
+            .filter(|lead| lead.kind == "codex")
+            .and_then(|lead| lead.profile.clone());
+        if let Err(error) = self.owners.codex_preflight(profile.as_deref()) {
+            return self.settle_plan(
+                work,
+                "waiting_user",
+                &format!("codex_preflight_failed: {error}"),
+                "front",
+            );
+        }
         let index = work.next_role_index("verifier");
         let id = format!("V{index}");
         let dispatch = generate_id("dispatch");
@@ -332,11 +345,7 @@ impl RelayEngine {
             backend: "codex".to_owned(),
             ref_id: String::new(),
             turn_id: None,
-            profile: work
-                .lead
-                .as_ref()
-                .filter(|lead| lead.kind == "codex")
-                .and_then(|lead| lead.profile.clone()),
+            profile: profile.clone(),
             slug: "plan-review".to_owned(),
             task_summary: "Independent review of the completed steps".to_owned(),
             owner_scope: None,
@@ -361,7 +370,6 @@ impl RelayEngine {
             work.goal, work.completion_criteria,
             json!({"challenge":verification.challenge,"verdict":"pass|fail|inconclusive","evidence_refs":["path or receipt"],"blocking_issues":[]}),
         );
-        let profile = work.participants[position].profile.clone();
         let reply = self.owners.codex_dispatch_turn(
             profile.as_deref(),
             None,
