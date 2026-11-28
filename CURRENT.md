@@ -42,13 +42,16 @@ AppHost selected `26.1120.50957`; Provider health/status reports `ok=true`,
 The earlier local E01/Thin Option B activation is historical, not the active
 route. This refresh did not independently requalify unmodified components.
 
-**Targeted refresh (2026-11-28):** Provider and Orch now select the signed
-`0.1.0-4a030b2f` generations (sequences `64` and `35`). The running Provider
-(`30670`), relay (`30668`) and Orch MCP child (`30693`, tunnel `30669`) match
-their signed binaries. Both `previous` links now select `0.1.0-e6f24ca2`.
-Wrapper bytes, upstream activation state, protected directory identities and
-the three unrelated tunnel processes were preserved. See the 2026-11-28
-cutover receipts below.
+**Targeted refresh (2026-11-28):** Provider selects signed `0.1.0-d2f70a01`
+(`sequence=66`, PID `17216`, `previous -> 0.1.0-4a030b2f`) and Orch selects
+signed `0.1.0-ddd6a43b` (`sequence=41`, relay PID `23951`, MCP child PID
+`23965`, tunnel PID `23950`, `previous -> 0.1.0-8dd4f48e`). All running
+`/proc/<pid>/exe` digests match their signed binaries. Four consecutive live
+natural-user `F1 -> L1` reviews in the `Codex` project completed end-to-end
+with `0` rate-limit hits, live `/wake` pushes, and converged to `PASS`
+(`P1=0, P2=0`). Wrapper bytes, upstream activation state, protected directory
+identities and the three unrelated tunnel processes were preserved. See the
+2026-11-28 cutover receipts below.
 
 ### Unverified / Remaining Boundaries
 
@@ -92,6 +95,48 @@ cutover receipts below.
 ---
 
 ## Recent Verified Evidence (Newest-First)
+
+### 2026-11-28 — Closed-loop live F1→L1 review convergence (`d2f70a01` Provider / `ddd6a43b` Orch)
+
+- **Source and publication.** Across three closed-loop QA rounds (`d2f70a01`,
+  `8dd4f48e`, `ddd6a43b`) driven by live ChatGPT `F1 -> L1` read-only reviews
+  in the `Codex` project (`g-p-6b075b896c6881919d2575fb599973ff`):
+  - `d2f70a01`: guarded `page_driver.js` `sendBudget.acquire()` pacing
+    cancellation race (checking `turn.stopped` before token consumption and
+    stream dispatch), strictly clamped `mcp.rs` short-wait to `3500ms` and
+    remaining sleep, and added fail-closed receipt tombstones. Signed CI:
+    [Provider run 46106151232](https://github.com/humtr/codex/actions/runs/46106151232)
+    · [Orch run 46106153383](https://github.com/humtr/codex/actions/runs/46106153383).
+  - `8dd4f48e`: sharded permanent fail-closed tombstones across 256 2-hex
+    prefix shards (`requests/tombstones/<prefix>.json`, zero eviction,
+    fail-closed before unlinking full receipts on shard overflow), amortized
+    prune every 32 completions, and propagated unlink/fsync errors. Signed CI:
+    [Orch run 46107525519](https://github.com/humtr/codex/actions/runs/46107525519).
+  - `ddd6a43b`: added parent `requests/` directory `fsync` in `Requests::open()`
+    and before prune unlinks plus legacy `tombstones.json` fallback test.
+    Signed CI: [Orch run 46108326395](https://github.com/humtr/codex/actions/runs/46108326395).
+- **Local gates.** `mcp/termux-orch` passed `cargo fmt --check`, locked strict
+  `clippy`, and both `umask 0022` & `0077` `cargo test --locked` (14 unit +
+  17 E2E = 31 per umask); `providers/chatgpt` passed `fmt`, strict `clippy`,
+  both umasks (93 pass + 1 ignored per umask), and `node --test page_driver.test.mjs`
+  (22/22); `.github/scripts/check_doc_links.py` validated 24 tracked documents.
+- **Live cutover & 4 live E2E proofs (`Codex` project).** Activated via
+  `./install.sh --require-signed --release wrapper --components ... --skip-upstream --no-setup`
+  after stopping target services:
+
+  | Running process | PID | Signed sequence | Executable SHA-256 |
+  | --- | ---: | ---: | --- |
+  | `chatgpt-provider 0.1.0-d2f70a01` | 17216 | 66 | `b6db845dd885d9033e4c7e5cd3b8b9b4895b992f400b23e7e05530ed0033f993` |
+  | `termux-orch-relay 0.1.0-ddd6a43b` | 23951 | 41 | `7a02b7193ffb2252a9f0e340cf79f82dc29df78bf4dec647b50d703762f8a0e0` |
+  | `termux-orch` MCP child (tunnel `23950`) | 23965 | 41 | `7a02b7193ffb2252a9f0e340cf79f82dc29df78bf4dec647b50d703762f8a0e0` |
+
+  Live natural-user `F1 -> L1` runs (all `Codex` project, `front_marker` bound,
+  `rate_limit_hits=0`, `local_rate_limit_hits=0`, `rate_limiter.{waited,rejected}=0`,
+  `git status` clean):
+  - Baseline (`work_93672b8f`, 55s, `wake_pushes=2`): `L1` found P1×2 + P2×2.
+  - Round 1 (`work_4bdd32ac`, 42s, `wake_pushes=4`): `L1` confirmed pacing-stop & short-wait fixed; flagged P1×1 + P2×1 in tombstone cap/prune.
+  - Round 2 (`work_666b6a7b`, 45s, `wake_pushes=5`): `L1` confirmed P2=0; flagged final P1 (`requests/` parent dir `fsync`).
+  - Round 3 (`work_9d88c05e`, 33s, `wake_pushes=4`): `L1` returned **`PASS` (`P1=0, P2=0`)** across `8dd4f48e..ddd6a43b` and `4a030b2f..ddd6a43b`.
 
 ### 2026-11-28 — Signed MCP short-wait, pre-validation, receipt pruning, and brief Provider pacing
 
