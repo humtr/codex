@@ -42,16 +42,16 @@ AppHost selected `26.1120.50957`; Provider health/status reports `ok=true`,
 The earlier local E01/Thin Option B activation is historical, not the active
 route. This refresh did not independently requalify unmodified components.
 
-**Targeted refresh (2026-11-28):** Provider selects signed `0.1.0-d2f70a01`
-(`sequence=66`, PID `17216`, `previous -> 0.1.0-4a030b2f`) and Orch selects
-signed `0.1.0-ddd6a43b` (`sequence=41`, relay PID `23951`, MCP child PID
-`23965`, tunnel PID `23950`, `previous -> 0.1.0-8dd4f48e`). All running
-`/proc/<pid>/exe` digests match their signed binaries. Four consecutive live
-natural-user `F1 -> L1` reviews in the `Codex` project completed end-to-end
-with `0` rate-limit hits, live `/wake` pushes, and converged to `PASS`
-(`P1=0, P2=0`). Wrapper bytes, upstream activation state, protected directory
-identities and the three unrelated tunnel processes were preserved. See the
-2026-11-28 cutover receipts below.
+**Targeted refresh (2026-11-28):** Provider (`0.1.0-313a3f74`, `seq 68`, PID
+`17980`, `previous -> 0.1.0-d2f70a01`), `termux-codex-mcp` (`0.1.0-313a3f74`,
+`seq 10`, MCP child PID `18010`, tunnel `17981`, `previous -> 0.1.0-baf81737`),
+and `termux-orch` (`0.1.0-313a3f74`, `seq 44`, relay PID `17979`, MCP child PID
+`18012`, tunnel `17982`, `previous -> 0.1.0-ddd6a43b`) are all signed and
+active with matching `/proc/<pid>/exe` SHA-256 digests. Relay `/healthz` now
+separates `local_observe_calls` from `remote_chatgpt_calls`; Provider reports
+`authenticated` / `completion_ready=true`; all 4 MCP tunnels report `200 ready`.
+Wrapper bytes, upstream activation state, protected directory identities and
+unrelated services were preserved. See the 2026-11-28 cutover receipts below.
 
 ### Unverified / Remaining Boundaries
 
@@ -95,6 +95,46 @@ identities and the three unrelated tunnel processes were preserved. See the
 ---
 
 ## Recent Verified Evidence (Newest-First)
+
+### 2026-11-28 — Signed stabilization & simplification rollout (`313a3f74`)
+
+- **Source and publication.** `313a3f74` (implemented by ChatGPT `gpt-6-2` via
+  `codex exec -p chatgpt` after read-only research `work_2cebca5e`, independently
+  diff-audited) unified Codex item text extraction into
+  `crates/codex-daemon-client` (`extract_item_text`, preserving both caller
+  policies), slimmed `providers/chatgpt/src/page_driver.js` (`-13` net lines),
+  separated `local_observe_calls` from `remote_chatgpt_calls` on `/healthz` and
+  `relay_status`, and fixed `op_wait_set` to reject unknown `participant_id`s
+  (`unknown_participant_id`) before arming, with normative updates in
+  [docs/spec/ORCHESTRATION.md](docs/spec/ORCHESTRATION.md) and
+  [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Retired worktree candidates with
+  unique commits (`c1672-*`, `codex-audit-OZWYLD`) and active `verification/`
+  evidence were conservatively preserved. Signed CI succeeded across all 3
+  affected components:
+  [Provider #46114936677](https://github.com/humtr/codex/actions/runs/46114936677)
+  · [Termux-Codex #46114941830](https://github.com/humtr/codex/actions/runs/46114941830)
+  · [Termux-Orch #46115178394](https://github.com/humtr/codex/actions/runs/46115178394).
+- **Local gates.** All 18 local gates passed: `crates/codex-daemon-client` (6),
+  `mcp/termux-codex` (5), `mcp/termux-orch` (32), `providers/chatgpt` (93 + 1
+  ignored) passed `cargo fmt --check`, locked strict `clippy`, and `umask 0022`
+  & `0077` `cargo test --locked`; `node --test providers/chatgpt/tests/page_driver.test.mjs`
+  (22/22); `.github/scripts/check_doc_links.py` (24 tracked documents).
+- **Live cutover.** Installed via `./install.sh --require-signed --release wrapper --components chatgpt-provider,termux-codex-mcp,termux-orch --skip-upstream --no-setup`
+  after stopping the four target services cleanly:
+
+  | Running process | PID | Signed sequence | Executable SHA-256 |
+  | --- | ---: | ---: | --- |
+  | `chatgpt-provider 0.1.0-313a3f74` | 17980 | 68 | `f446c3bf4041feb58f8adc8f9c6c0dbc787cad28e1e026e79fc5e057923c3ab0` |
+  | `termux-codex-mcp 0.1.0-313a3f74` (tunnel `17981`) | 18010 | 10 | `947b00617744abbb4ff641cfd68d849d164073974801fceed4ba4c93ef39a39b` |
+  | `termux-orch-relay 0.1.0-313a3f74` | 17979 | 44 | `7f9d27d768ae8eec65ae0cdc9ac4a575b348c59afac5be8462a522fa81f1e6f1` |
+  | `termux-orch` MCP child (tunnel `17982`) | 18012 | 44 | `7f9d27d768ae8eec65ae0cdc9ac4a575b348c59afac5be8462a522fa81f1e6f1` |
+
+  All `/proc/<pid>/exe` digests match installed signed binaries; `previous`
+  retains `0.1.0-d2f70a01` (Provider), `0.1.0-baf81737` (Codex MCP), and
+  `0.1.0-ddd6a43b` (Orch). Relay `/healthz` reports `ok=true`,
+  `local_observe_calls=0`, `remote_chatgpt_calls=0`, `rate_limit_hits=0`;
+  Provider `/control/status` reports `authenticated` / `completion_ready=true`;
+  all 4 MCP tunnels report `200 ready`.
 
 ### 2026-11-28 — Closed-loop live F1→L1 review convergence (`d2f70a01` Provider / `ddd6a43b` Orch)
 
