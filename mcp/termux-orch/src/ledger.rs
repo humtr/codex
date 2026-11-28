@@ -431,8 +431,8 @@ pub struct LeadRollover {
     #[serde(default)]
     pub dispatched: bool,
     pub chat_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scan_cursor: Option<String>,
+    #[serde(default)]
+    pub next_probe_at_unix: u64,
     #[serde(default)]
     pub size_rejection: bool,
 }
@@ -665,13 +665,26 @@ pub struct WorkLock {
 #[derive(Debug, Clone)]
 pub struct Ledger {
     root: PathBuf,
+    bounded_work_locks: bool,
 }
 
 impl Ledger {
     pub fn open(state_root: PathBuf) -> io::Result<Self> {
         ensure_private_dir(&state_root)?;
         ensure_private_dir(&state_root.join("jobs"))?;
-        Ok(Self { root: state_root })
+        Ok(Self {
+            root: state_root,
+            bounded_work_locks: false,
+        })
+    }
+
+    pub fn with_bounded_locks(mut self) -> Self {
+        self.bounded_work_locks = true;
+        self
+    }
+
+    pub fn lock_relay(&self) -> io::Result<WorkLock> {
+        Self::lock(&self.root.join("relay.lock"), true)
     }
 
     pub fn root(&self) -> &Path {
@@ -695,11 +708,11 @@ impl Ledger {
     pub fn lock_work(&self, work_id: &str) -> io::Result<WorkLock> {
         let dir = self.work_dir(work_id)?;
         ensure_private_dir(&dir)?;
-        Self::lock(&dir.join(".lock"))
+        self.lock_mutation(&dir.join(".lock"))
     }
 
     pub fn lock_writers(&self) -> io::Result<WorkLock> {
-        Self::lock(&self.root.join("writers.lock"))
+        self.lock_mutation(&self.root.join("writers.lock"))
     }
 
     pub fn writer_busy(&self, workspace: &Path) -> io::Result<bool> {
@@ -721,12 +734,28 @@ impl Ledger {
         let dir = self.root.join("projects");
         ensure_private_dir(&dir)?;
         Ok((
-            Self::lock(&dir.join(format!("{account}.lock")))?,
+            self.lock_mutation(&dir.join(format!("{account}.lock")))?,
             dir.join(format!("{key}.json")),
         ))
     }
 
-    fn lock(lock_path: &Path) -> io::Result<WorkLock> {
+    fn lock_mutation(&self, path: &Path) -> io::Result<WorkLock> {
+        use std::time::{Duration, Instant};
+        let start = Instant::now();
+        loop {
+            match Self::lock(path, self.bounded_work_locks) {
+                Err(error)
+                    if error.kind() == io::ErrorKind::WouldBlock
+                        && start.elapsed() < Duration::from_millis(150) =>
+                {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                result => return result,
+            }
+        }
+    }
+
+    pub(crate) fn lock(lock_path: &Path, nonblocking: bool) -> io::Result<WorkLock> {
         let file = OpenOptions::new()
             .create(true)
             .read(true)
@@ -734,8 +763,9 @@ impl Ledger {
             .mode(0o600)
             .custom_flags(libc::O_NOFOLLOW)
             .open(lock_path)?;
+        let flags = libc::LOCK_EX | if nonblocking { libc::LOCK_NB } else { 0 };
         loop {
-            let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
+            let rc = unsafe { libc::flock(file.as_raw_fd(), flags) };
             if rc == 0 {
                 break;
             }

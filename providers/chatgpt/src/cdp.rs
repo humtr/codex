@@ -20,6 +20,7 @@ const MAX_LANE_MUTABLE_IDS: usize = 256;
 const MAX_LANE_MUTABLE_BYTES: usize = 8 * 1024 * 1024;
 const DEFAULT_RPC_TIMEOUT: Duration = Duration::from_secs(30);
 
+pub const ORCH_WAKE_BINDING: &str = "__termuxOrchWake";
 pub const STREAM_BINDING: &str = "__termuxChatGptStream";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -338,11 +339,14 @@ struct CdpCommand {
     reply: oneshot::Sender<Result<Value>>,
 }
 
+type WakeRoute = Arc<Mutex<Option<(String, mpsc::Sender<()>)>>>;
+
 #[derive(Clone)]
 pub struct CdpClient {
     tx: mpsc::Sender<CdpCommand>,
     pub generation: Arc<str>,
     streams: StreamRoutes,
+    orch_wake: WakeRoute,
 }
 
 impl CdpClient {
@@ -356,6 +360,8 @@ impl CdpClient {
 
         let streams = StreamRoutes::default();
         let routes = Arc::clone(&streams);
+        let orch_wake = WakeRoute::default();
+        let wake_route = Arc::clone(&orch_wake);
         let reader_task = tokio::spawn(async move {
             let mut br = BufReader::new(reader);
             loop {
@@ -430,6 +436,17 @@ impl CdpClient {
                                 }
                             }
                         } else if msg["method"] == "Runtime.bindingCalled"
+                            && msg["params"]["name"] == ORCH_WAKE_BINDING
+                            && msg["params"]["payload"] == "settled"
+                        {
+                            if let Ok(route) = wake_route.lock() {
+                                if let Some((session, wake)) = &*route {
+                                    if msg["sessionId"].as_str() == Some(session) {
+                                        let _ = wake.try_send(());
+                                    }
+                                }
+                            }
+                        } else if msg["method"] == "Runtime.bindingCalled"
                             && msg["params"]["name"] == STREAM_BINDING
                         {
                             let sid = msg["sessionId"].as_str();
@@ -467,6 +484,13 @@ impl CdpClient {
             tx,
             generation: generation.into(),
             streams,
+            orch_wake,
+        }
+    }
+
+    pub fn route_orch_wake(&self, session: &str, wake: mpsc::Sender<()>) {
+        if let Ok(mut route) = self.orch_wake.lock() {
+            *route = Some((session.to_owned(), wake));
         }
     }
 

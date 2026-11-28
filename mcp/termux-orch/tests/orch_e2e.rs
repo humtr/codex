@@ -57,11 +57,28 @@ fn cli_flags_describe_tools_and_compiled_stdio_circuit_breaker_and_replay() {
     let mut reader = BufReader::new(stdout);
 
     let send = |stdin: &mut std::process::ChildStdin, reader: &mut BufReader<_>, req: Value| {
-        writeln!(stdin, "{req}").unwrap();
-        stdin.flush().unwrap();
-        let mut line = String::new();
-        reader.read_line(&mut line).unwrap();
-        serde_json::from_str::<Value>(&line).unwrap()
+        let call =
+            |stdin: &mut std::process::ChildStdin, reader: &mut BufReader<_>, req: &Value| {
+                writeln!(stdin, "{req}").unwrap();
+                stdin.flush().unwrap();
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                serde_json::from_str::<Value>(&line).unwrap()
+            };
+        let reply = call(stdin, reader, &req);
+        let queued = rpc_payload(&reply);
+        if queued["state"] == "queued" {
+            assert!(Command::new(bin_path())
+                .args(["tick", "--requests-only"])
+                .env("ORCH_STATE_DIR", &state_dir)
+                .env("ORCH_RECEIPT_DIR", &rcpt_dir)
+                .env("CHATGPT_PROVIDER_URL", "http://127.0.0.1:1")
+                .status()
+                .unwrap()
+                .success());
+            return call(stdin, reader, &operation_status_rpc(&queued));
+        }
+        reply
     };
 
     let init = send(
@@ -199,10 +216,20 @@ fn cli_flags_describe_tools_and_compiled_stdio_circuit_breaker_and_replay() {
 struct Mcp {
     child: std::process::Child,
     reader: BufReader<std::process::ChildStdout>,
+    queue_drain: Command,
 }
 
 impl Mcp {
     fn start(command: &mut Command) -> Self {
+        let mut queue_drain = Command::new(bin_path());
+        for (key, value) in command.get_envs() {
+            if let Some(value) = value {
+                queue_drain.env(key, value);
+            } else {
+                queue_drain.env_remove(key);
+            }
+        }
+        queue_drain.args(["tick", "--requests-only"]);
         let mut child = command
             .arg("mcp")
             .stdin(Stdio::piped())
@@ -210,19 +237,48 @@ impl Mcp {
             .spawn()
             .unwrap();
         let reader = BufReader::new(child.stdout.take().unwrap());
-        Self { child, reader }
+        Self {
+            child,
+            reader,
+            queue_drain,
+        }
     }
 
     fn call(&mut self, name: &str, arguments: Value) -> Value {
         let req = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":name,"arguments":arguments}});
+        let queued = rpc_payload(&self.rpc(&req));
+        if queued["state"] != "queued" {
+            return queued;
+        }
+        let drain = self.queue_drain.output().unwrap();
+        assert!(
+            drain.status.success(),
+            "{}",
+            String::from_utf8_lossy(&drain.stderr)
+        );
+        rpc_payload(&self.rpc(&operation_status_rpc(&queued)))
+    }
+
+    fn rpc(&mut self, req: &Value) -> Value {
         let stdin = self.child.stdin.as_mut().unwrap();
         writeln!(stdin, "{req}").unwrap();
         stdin.flush().unwrap();
         let mut line = String::new();
         self.reader.read_line(&mut line).unwrap();
-        let rpc: Value = serde_json::from_str(&line).unwrap();
-        serde_json::from_str(rpc["result"]["content"][0]["text"].as_str().unwrap()).unwrap()
+        serde_json::from_str(&line).unwrap()
     }
+}
+
+fn rpc_payload(rpc: &Value) -> Value {
+    rpc["result"]["content"][0]["text"]
+        .as_str()
+        .map_or(Value::Null, |text| serde_json::from_str(text).unwrap())
+}
+
+fn operation_status_rpc(queued: &Value) -> Value {
+    json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
+        "name":"orch_call","arguments":{"action":"operation_status","arguments":{"operation_id":queued["operation_id"]}}
+    }})
 }
 
 impl Drop for Mcp {
@@ -280,11 +336,20 @@ impl Drop for Relay {
 #[test]
 fn codex_dispatch_without_a_thread_releases_the_worker_on_tick() {
     let root = tmp_dir("orch-unstarted");
+    let sock = root.join("daemon.sock");
+    let daemon = std::os::unix::net::UnixListener::bind(&sock).unwrap();
+    let mock = std::thread::spawn(move || {
+        // Each admission establishes one account/read connection. The next connection
+        // rejects thread/start before a thread ID exists.
+        for index in 0..6 {
+            mock_codex_daemon(daemon.accept().unwrap().0, index % 2 == 0);
+        }
+    });
     let command = || {
         let mut cmd = Command::new(bin_path());
         cmd.env("ORCH_STATE_DIR", root.join("state"))
             .env("ORCH_RECEIPT_DIR", root.join("receipts"))
-            .env("ORCH_CODEX_SOCKET", root.join("missing.sock"))
+            .env("ORCH_CODEX_SOCKET", &sock)
             .env("CHATGPT_PROVIDER_URL", "http://127.0.0.1:1");
         cmd
     };
@@ -325,6 +390,7 @@ fn codex_dispatch_without_a_thread_releases_the_worker_on_tick() {
     assert_eq!(second["state"], "pending", "{second}");
     assert_eq!(second["participant"]["participant_id"], "W2");
     drop(mcp);
+    mock.join().unwrap();
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -681,7 +747,7 @@ fn compiled_context_limit_rolls_over_with_turn_threshold_disabled() {
 }
 
 #[test]
-fn compiled_unscoped_rollover_recovers_the_original_chat_from_a_later_page() {
+fn compiled_unscoped_rollover_recovers_the_original_lane_without_listing_chats() {
     exercise_compiled_rollover(true, true, None);
 }
 
@@ -768,7 +834,12 @@ fn exercise_compiled_rollover(
                 }
                 "/control/observe" => {
                     let lane = body["lane_id"].as_str().unwrap_or_default();
-                    json!({"state":"settled","generating":false,"lane_id":lane,"chat_id":p.lanes.get(lane)})
+                    if body["local_only"] == true && body["chat_id"] == "lead-1" {
+                        json!({"state":if p.local_turn_error.is_some() {"error"} else {"settled"},
+                            "generating":false,"chat_id":"lead-1","error":p.local_turn_error})
+                    } else {
+                        json!({"state":"settled","generating":false,"lane_id":lane,"chat_id":p.lanes.get(lane)})
+                    }
                 }
                 "/control/send" => {
                     assert_eq!(body["expected_account_id"], "pinned-account");
@@ -796,9 +867,7 @@ fn exercise_compiled_rollover(
                     p.messages.push(prompt);
                     if body["chat_id"].is_null() && p.reject_create_receipt {
                         p.reject_create_receipt = false;
-                        if unscoped {
-                            p.lanes.remove(body["lane_id"].as_str().unwrap());
-                        }
+
                         continue;
                     }
                     json!({"state":"settled","chat_id":next})
@@ -889,7 +958,7 @@ fn exercise_compiled_rollover(
     provider.lock().unwrap().wrong_account = true;
     let rejected = mcp.call(
         "orch_call",
-        json!({"action":"lead_rollover","arguments":{"work_id":wid}}),
+        json!({"action":"lead_rollover","arguments":{"work_id":wid,"call_id":"wrong-account"}}),
     );
     assert_eq!(rejected["error"], "pinned_account_mismatch", "{rejected}");
     assert_eq!(provider.lock().unwrap().create_calls, 0);
@@ -937,7 +1006,7 @@ fn exercise_compiled_rollover(
     tick();
     if unscoped {
         tick();
-        assert_eq!(provider.lock().unwrap().listing_pages, 2);
+        assert_eq!(provider.lock().unwrap().listing_pages, 0);
     }
     let w = mcp.call("orch_works", json!({"action":"read","work_id":wid}));
     assert_eq!(w["work"]["lead"]["generation"], 2, "{w}");
@@ -1006,7 +1075,7 @@ fn exercise_compiled_rollover(
     let manual = mcp.call(
         "orch_call",
         json!({
-            "action":"lead_rollover","arguments":{"work_id":wid,"reason":"manual_test",
+            "action":"lead_rollover","arguments":{"work_id":wid,"call_id":"manual-rollover","reason":"manual_test",
             "checkpoint_md":"CHECKPOINT_LEAD updated","expected_lead_generation":2}
         }),
     );
@@ -1249,5 +1318,177 @@ fn cancelling_shell_plan_escalates_when_worker_ignores_term() {
         json_file(&state.join("jobs").join(wid).join("shell/W1.exit.json")).unwrap()["exit_code"],
         137
     );
+    fs::remove_dir_all(root).unwrap();
+}
+
+fn mock_codex_daemon(mut stream: std::os::unix::net::UnixStream, preflight: bool) {
+    use std::io::Read;
+    let mut reader = BufReader::new(stream.try_clone().unwrap());
+    let mut key = String::new();
+    loop {
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        if line == "\r\n" {
+            break;
+        }
+        if let Some((name, value)) = line.split_once(':') {
+            if name.eq_ignore_ascii_case("sec-websocket-key") {
+                key = value.trim().to_owned();
+            }
+        }
+    }
+    fn openssl(args: &[&str], input: &[u8]) -> Vec<u8> {
+        let mut child = Command::new("openssl")
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(input).unwrap();
+        let out = child.wait_with_output().unwrap();
+        assert!(out.status.success());
+        out.stdout
+    }
+    let hash = openssl(
+        &["dgst", "-sha1", "-binary"],
+        format!("{key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11").as_bytes(),
+    );
+    let accept = openssl(&["base64", "-A"], &hash);
+    write!(stream, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {}\r\n\r\n",
+        String::from_utf8(accept).unwrap()).unwrap();
+    loop {
+        let mut head = [0; 2];
+        if reader.read_exact(&mut head).is_err() || head[0] & 15 == 8 {
+            break;
+        }
+        assert_ne!(head[1] & 128, 0);
+        let size = if head[1] & 127 == 126 {
+            let mut bytes = [0; 2];
+            reader.read_exact(&mut bytes).unwrap();
+            usize::from(u16::from_be_bytes(bytes))
+        } else {
+            usize::from(head[1] & 127)
+        };
+        let mut mask = [0; 4];
+        reader.read_exact(&mut mask).unwrap();
+        let mut data = vec![0; size];
+        reader.read_exact(&mut data).unwrap();
+        for (index, byte) in data.iter_mut().enumerate() {
+            *byte ^= mask[index % 4];
+        }
+        let request: Value = serde_json::from_slice(&data).unwrap();
+        let id = &request["id"];
+        let reply = match request["method"].as_str().unwrap() {
+            "initialize" => json!({"id":id,"result":{"userAgent":"fixture"}}),
+            "initialized" => continue,
+            "account/read" if preflight => {
+                assert_eq!(request["params"]["refreshToken"], false);
+                json!({"id":id,"result":{"requiresOpenaiAuth":true,"account":{"type":"chatgpt"}}})
+            }
+            "thread/start" if !preflight => {
+                json!({"id":id,"error":{"code":-32000,"message":"fixture rejected thread/start"}})
+            }
+            method => panic!("unexpected daemon method {method}"),
+        };
+        let data = reply.to_string();
+        assert!(data.len() < 126);
+        stream.write_all(&[0x81, data.len() as u8]).unwrap();
+        stream.write_all(data.as_bytes()).unwrap();
+    }
+}
+
+#[test]
+fn owner_queue_returns_while_owner_is_blocked_and_restart_never_replays_started_call() {
+    use std::io::Read;
+    use std::net::TcpListener;
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::{Duration, Instant};
+
+    let root = tmp_dir("orch-owner-queue");
+    let state = root.join("state");
+    let token = root.join("control.token");
+    fs::write(&token, "a".repeat(64)).unwrap();
+    fs::set_permissions(&token, fs::Permissions::from_mode(0o600)).unwrap();
+    let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let addr = listener.local_addr().unwrap();
+    let health = root.join("relay/health.url");
+    let command = || {
+        let mut cmd = Command::new(bin_path());
+        cmd.env("ORCH_STATE_DIR", &state)
+            .env("ORCH_RECEIPT_DIR", root.join("receipts"))
+            .env("ORCH_RELAY_HEALTH_URL_FILE", &health)
+            .env("CHATGPT_PROVIDER_URL", format!("http://{addr}"))
+            .env("CHATGPT_PROVIDER_TOKEN_FILE", &token);
+        cmd
+    };
+    let mut mcp = Mcp::start(&mut command());
+    let request = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
+        "name":"orch_work","arguments":{"action":"create","call_id":"slow-owner",
+            "title":"Slow owner","goal":"Exercise interrupted execution","project_scope":"fixture"}
+    }});
+    let start = Instant::now();
+    let queued = rpc_payload(&mcp.rpc(&request));
+    assert_eq!(queued["state"], "queued");
+    assert!(start.elapsed() < Duration::from_secs(2));
+    listener.set_nonblocking(true).unwrap();
+    assert_eq!(
+        listener.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+    assert_eq!(
+        rpc_payload(&mcp.rpc(&request))["operation_id"],
+        queued["operation_id"]
+    );
+    let mut conflicting = request.clone();
+    conflicting["params"]["arguments"]["goal"] = json!("Other payload");
+    assert_eq!(
+        rpc_payload(&mcp.rpc(&conflicting))["error"],
+        "orch_call_id_payload_conflict"
+    );
+
+    let mut relay = command()
+        .args(["relay", "--poll-ms", "60000"])
+        .spawn()
+        .unwrap();
+    let mut owner = wait_for(|| listener.accept().ok().map(|(stream, _)| stream));
+    owner
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    let mut request_head = [0; 4096];
+    let size = owner.read(&mut request_head).unwrap();
+    assert!(String::from_utf8_lossy(&request_head[..size])
+        .starts_with("GET /control/status?account_only=true "));
+    assert_eq!(
+        rpc_payload(&mcp.rpc(&operation_status_rpc(&queued)))["state"],
+        "processing"
+    );
+    assert_eq!(
+        rpc_payload(
+            &mcp.rpc(&json!({"jsonrpc":"2.0","id":1,"method":"tools/call",
+        "params":{"name":"orch_works","arguments":{"action":"list"}}}))
+        )["count"],
+        0
+    );
+
+    relay.kill().unwrap();
+    relay.wait().unwrap();
+    drop(owner);
+    assert!(command()
+        .args(["tick", "--requests-only"])
+        .status()
+        .unwrap()
+        .success());
+    let recovered = rpc_payload(&mcp.rpc(&operation_status_rpc(&queued)));
+    assert_eq!(recovered["state"], "delivery_unknown");
+    assert_eq!(recovered["executed"], "unknown");
+    assert_eq!(
+        listener.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+    assert_eq!(
+        rpc_payload(&mcp.rpc(&request))["operation_id"],
+        recovered["operation_id"]
+    );
+    drop(mcp);
     fs::remove_dir_all(root).unwrap();
 }

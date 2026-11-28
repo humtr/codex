@@ -101,6 +101,7 @@ struct OwnerGate {
     chatgpt_cooldown_until_unix: AtomicU64,
     rate_limit_hits: AtomicU64,
     remote_chatgpt_calls: AtomicU64,
+    local_rate_limit_hits: AtomicU64,
 }
 
 #[derive(Debug, Clone)]
@@ -125,7 +126,7 @@ pub fn is_rate_limited(val: &Value) -> bool {
     val.get("state").and_then(Value::as_str) == Some("error")
         && matches!(
             val.get("error").and_then(Value::as_str),
-            Some("backend_http_429" | "retry_after_cooldown")
+            Some("backend_http_429" | "retry_after_cooldown" | "local_rate_limit")
         )
 }
 
@@ -150,6 +151,10 @@ impl OwnerClient {
 
     pub fn rate_limit_hits(&self) -> u64 {
         self.gate.rate_limit_hits.load(Ordering::Acquire)
+    }
+
+    pub fn local_rate_limit_hits(&self) -> u64 {
+        self.gate.local_rate_limit_hits.load(Ordering::Acquire)
     }
 
     pub fn remote_chatgpt_calls(&self) -> u64 {
@@ -204,7 +209,9 @@ impl OwnerClient {
         body: Option<&Value>,
         timeout: Duration,
     ) -> Result<Value, String> {
-        let exempt_from_cooldown = path == "/control/status" || path == "/control/stop";
+        let exempt_from_cooldown = path.starts_with("/control/status?")
+            || path == "/control/stop"
+            || (path == "/control/observe" && body.is_some_and(|body| body["local_only"] == true));
         if !exempt_from_cooldown {
             let rem = self.chatgpt_cooldown_remaining_secs();
             if rem > 0 {
@@ -245,7 +252,15 @@ impl OwnerClient {
         }
         if (200..300).contains(&resp.status) {
             let val = resp.json.unwrap_or_else(|| json!({ "raw": resp.raw_text }));
-            if is_rate_limited(&val) {
+            if val["error"] == "local_rate_limit" {
+                self.gate
+                    .local_rate_limit_hits
+                    .fetch_add(1, Ordering::AcqRel);
+                let secs = parse_retry_after_secs(&val).unwrap_or(2);
+                self.gate
+                    .chatgpt_cooldown_until_unix
+                    .fetch_max(now_unix().saturating_add(secs), Ordering::AcqRel);
+            } else if is_rate_limited(&val) {
                 let secs = parse_retry_after_secs(&val).unwrap_or(DEFAULT_429_COOLDOWN_SECS);
                 self.note_chatgpt_rate_limit(secs, path);
             }
@@ -260,7 +275,12 @@ impl OwnerClient {
     }
 
     pub fn chatgpt_status(&self) -> Result<Value, String> {
-        self.control_call("GET", "/control/status", None, READ_TIMEOUT)
+        self.control_call(
+            "GET",
+            "/control/status?account_only=true",
+            None,
+            READ_TIMEOUT,
+        )
     }
 
     pub fn chatgpt_read_chat(&self, chat_id: &str, limit: u64) -> Result<Value, String> {
@@ -297,12 +317,19 @@ impl OwnerClient {
     }
 
     pub fn chatgpt_rename_chat(&self, chat_id: &str, title: &str) -> Result<Value, String> {
-        self.control_call(
+        let receipt = self.control_call(
             "POST",
             &format!("/control/chats/{}/rename", url_encode(chat_id)),
             Some(&json!({ "title": title })),
             READ_TIMEOUT,
-        )
+        )?;
+        if receipt["state"] != "ok" {
+            return Err(receipt["error"]
+                .as_str()
+                .unwrap_or("chatgpt_rename_rejected")
+                .to_owned());
+        }
+        Ok(receipt)
     }
 
     pub fn chatgpt_create_project(
@@ -326,10 +353,29 @@ impl OwnerClient {
         name: &str,
         id: Option<&str>,
     ) -> Result<Option<(String, String)>, String> {
+        if let Some(id) = id {
+            let project = self.control_call(
+                "GET",
+                &format!("/control/projects/{}?metadata_only=true", url_encode(id)),
+                None,
+                READ_TIMEOUT,
+            )?;
+            if project["state"] != "ok" || project["project_id"] != id {
+                return Err(project["error"]
+                    .as_str()
+                    .unwrap_or("project_identity_unavailable")
+                    .to_owned());
+            }
+            let label = project["name"]
+                .as_str()
+                .filter(|label| !label.is_empty())
+                .ok_or("project_name_unavailable")?;
+            return Ok(Some((id.to_owned(), label.to_owned())));
+        }
         let mut cursor = None::<String>;
         let mut found = None::<(String, String)>;
         let mut cursors = std::collections::HashSet::new();
-        for _ in 0..64 {
+        for _ in 0..3 {
             let path = match cursor.as_deref() {
                 Some(cursor) => {
                     format!("/control/projects?limit=100&cursor={}", url_encode(cursor))
@@ -337,16 +383,18 @@ impl OwnerClient {
                 None => "/control/projects?limit=100".to_owned(),
             };
             let page = self.control_call("GET", &path, None, READ_TIMEOUT)?;
-            let projects = page["projects"].as_array().ok_or("invalid project list")?;
+            let projects = page["projects"].as_array().ok_or_else(|| {
+                page["error"]
+                    .as_str()
+                    .unwrap_or("invalid project list")
+                    .to_owned()
+            })?;
             for project in projects {
                 let (Some(pid), Some(label)) = (project["id"].as_str(), project["name"].as_str())
                 else {
                     continue;
                 };
-                if id.is_some_and(|id| id == pid) {
-                    return Ok(Some((pid.to_owned(), label.to_owned())));
-                }
-                if id.is_none() && label == name {
+                if label == name {
                     if found.as_ref().is_some_and(|(old, _)| old != pid) {
                         return Err(
                             "multiple projects match this name; supply project_id".to_owned()
@@ -363,14 +411,22 @@ impl OwnerClient {
             }
             cursor = Some(next.to_owned());
         }
-        Err("project list did not finish".to_owned())
+        Err("project discovery exceeded three pages; supply project_id".to_owned())
     }
 
     pub fn chatgpt_observe(&self, chat_id: &str) -> Result<ChatGptObservation, String> {
+        self.chatgpt_observe_chat(chat_id, false)
+    }
+
+    pub fn chatgpt_observe_chat(
+        &self,
+        chat_id: &str,
+        local_only: bool,
+    ) -> Result<ChatGptObservation, String> {
         let val = self.control_call(
             "POST",
             "/control/observe",
-            Some(&json!({ "chat_id": chat_id })),
+            Some(&json!({ "chat_id": chat_id, "local_only": local_only })),
             READ_TIMEOUT,
         )?;
         let state = val
@@ -429,7 +485,7 @@ impl OwnerClient {
         self.control_call(
             "POST",
             "/control/observe",
-            Some(&json!({"lane_id": lane_id})),
+            Some(&json!({"lane_id": lane_id, "local_only": true})),
             READ_TIMEOUT,
         )
     }
@@ -495,35 +551,17 @@ impl OwnerClient {
             Some(&json!({
                 "expected_account_id":work.account_id, "project_id":work.project_id,
                 "lane_id":lane_id, "prompt":prompt, "model":model,
-                "reasoning_effort":reasoning_effort, "wait_ms":5000
+                "reasoning_effort":reasoning_effort, "wait_ms":50, "orch_wake":true
             })),
             SEND_TIMEOUT,
         )
     }
 
-    pub fn chatgpt_chat_page(
-        &self,
-        project: Option<&str>,
-        cursor: Option<&str>,
-    ) -> Result<Value, String> {
-        self.chatgpt_chat_page_limited(project, cursor, 30)
-    }
-
-    pub fn chatgpt_chat_page_limited(
-        &self,
-        project: Option<&str>,
-        cursor: Option<&str>,
-        limit: u64,
-    ) -> Result<Value, String> {
-        let lim = limit.clamp(1, 30);
-        let mut path = project.map_or_else(
-            || format!("/control/chats?limit={lim}&archived=false"),
-            |project| format!("/control/projects/{}?limit={lim}", url_encode(project)),
+    pub fn chatgpt_recent_chats(&self, project: Option<&str>) -> Result<Value, String> {
+        let path = project.map_or_else(
+            || "/control/chats?limit=2&archived=false".to_owned(),
+            |project| format!("/control/projects/{}?limit=2", url_encode(project)),
         );
-        if let Some(cursor) = cursor {
-            path.push_str("&cursor=");
-            path.push_str(&url_encode(cursor));
-        }
         self.control_call("GET", &path, None, READ_TIMEOUT)
     }
 
@@ -546,7 +584,7 @@ impl OwnerClient {
                 "prompt": prompt,
                 "model": lead.and_then(|lead| lead.model.as_deref()),
                 "reasoning_effort": lead.and_then(|lead| lead.reasoning_effort.as_deref()),
-                "wait_ms": 3_000
+                "wait_ms": 50, "orch_wake":true
             })),
             SEND_TIMEOUT,
         )
@@ -604,6 +642,27 @@ impl OwnerClient {
             env!("CARGO_PKG_VERSION"),
         )
         .map_err(|e| e.to_string())
+    }
+
+    pub fn codex_preflight(&self, profile: Option<&str>) -> Result<(), String> {
+        let mut client = self
+            .connect_codex(profile)
+            .map_err(|e| format!("codex_daemon_unavailable: {e}"))?;
+        Self::check_codex_account(&mut client)
+    }
+
+    fn check_codex_account(client: &mut DaemonClient) -> Result<(), String> {
+        let account = client
+            .call("account/read", json!({"refreshToken":false}))
+            .map_err(|e| format!("codex_authentication_unavailable: {e}"))?;
+        match account["requiresOpenaiAuth"].as_bool() {
+            Some(false) => Ok(()),
+            Some(true) if account["account"].is_object() => Ok(()),
+            Some(true) => Err("codex_authentication_required".to_owned()),
+            None => {
+                Err("codex_authentication_unavailable: malformed account/read response".to_owned())
+            }
+        }
     }
 
     pub fn codex_observe_thread(

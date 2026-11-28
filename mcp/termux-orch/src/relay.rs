@@ -13,23 +13,24 @@
 //!    dispatch.
 
 use crate::ledger::{
-    generate_id, now_unix, truncate_chars, DeliveryDispatch, InboxEvent, Isolation, Ledger,
-    Participant, PendingDelivery, StepFailure, Verdict, Verification, VerificationPolicy, WaitSet,
-    WorkRecord,
+    generate_id, now_unix, truncate_chars, InboxEvent, Isolation, Ledger, Participant,
+    PendingDelivery, StepFailure, Verdict, Verification, VerificationPolicy, WaitSet, WorkRecord,
 };
-use crate::owners::{parse_retry_after_secs, OwnerClient, DEFAULT_429_COOLDOWN_SECS};
+use crate::owners::{OwnerClient, DEFAULT_429_COOLDOWN_SECS};
 use serde_json::json;
 use std::collections::HashMap;
-use std::fs::{self, File};
-use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 const DEFAULT_ROLLOVER_CHECK_SECS: u64 = 60;
-const MAX_UNCONFIRMED_READBACK_ATTEMPTS: u32 = 5;
+mod daemon;
+mod delivery;
+mod steps;
+
+pub use daemon::{run_relay_daemon, run_requests};
+pub use delivery::enqueue_delivery_if_absent;
+use delivery::DeliveryOutcome;
 
 fn relay_log(event: &str, fields: serde_json::Value) {
     eprintln!(
@@ -59,6 +60,7 @@ pub struct RelayEngine {
     owners: OwnerClient,
     rollover_checks: Mutex<HashMap<String, (Instant, u64)>>,
     rollover_check_interval: Duration,
+    remote_observe_checks: Mutex<HashMap<String, Instant>>,
 }
 
 impl RelayEngine {
@@ -73,6 +75,7 @@ impl RelayEngine {
             owners,
             rollover_checks: Mutex::new(HashMap::new()),
             rollover_check_interval: Duration::from_secs(secs),
+            remote_observe_checks: Mutex::new(HashMap::new()),
         }
     }
 
@@ -106,6 +109,37 @@ impl RelayEngine {
         if let Ok(mut guard) = self.rollover_checks.lock() {
             guard.remove(work_id);
         }
+    }
+
+    fn observe_chatgpt_participant(
+        &self,
+        work: &WorkRecord,
+        participant: &Participant,
+    ) -> Result<crate::owners::ChatGptObservation, String> {
+        if participant.dispatch_id.is_some() {
+            let local = self
+                .owners
+                .chatgpt_observe_chat(&participant.ref_id, true)?;
+            if local.state != "not_found" {
+                return Ok(local);
+            }
+        }
+        let key = format!("{}:{}", work.work_id, participant.participant_id);
+        let mut checks = self
+            .remote_observe_checks
+            .lock()
+            .map_err(|error| error.to_string())?;
+        let now = Instant::now();
+        if checks
+            .get(&key)
+            .is_some_and(|last| now.duration_since(*last) < Duration::from_secs(60))
+        {
+            return Err("remote_observe_deferred".to_owned());
+        }
+        checks.retain(|_, last| now.duration_since(*last) < Duration::from_secs(60));
+        checks.insert(key, now);
+        drop(checks);
+        self.owners.chatgpt_observe(&participant.ref_id)
     }
 
     pub fn tick_once(&self) -> TickSummary {
@@ -238,7 +272,7 @@ impl RelayEngine {
                         }
                     }
                     "chatgpt" => {
-                        if let Ok(obs) = self.owners.chatgpt_observe(&p.ref_id) {
+                        if let Ok(obs) = self.observe_chatgpt_participant(&work, p) {
                             if !obs.generating && obs.state == "settled" {
                                 newly_settled.push((
                                     idx,
@@ -250,7 +284,9 @@ impl RelayEngine {
                                     obs.error.unwrap_or_else(|| "chatgpt_turn_error".to_owned());
                                 if matches!(
                                     detail.as_str(),
-                                    "backend_http_429" | "retry_after_cooldown"
+                                    "backend_http_429"
+                                        | "retry_after_cooldown"
+                                        | "local_rate_limit"
                                 ) {
                                     relay_log(
                                         "worker_observe_rate_limited",
@@ -433,7 +469,11 @@ impl RelayEngine {
             }
         }
         let rollover = crate::rollover::Rollover::new(&self.ledger, &self.owners);
-        if work.can_start() && work.pending_lead.is_none() && work.lead_rollover.is_some() {
+        if work.can_start()
+            && work.state != "waiting_user"
+            && work.pending_lead.is_none()
+            && work.lead_rollover.is_some()
+        {
             rollover
                 .advance(&mut work)
                 .map_err(|e| format!("lead rollover advance failed: {e}"))?;
@@ -449,9 +489,10 @@ impl RelayEngine {
         if work.can_start()
             && work.pending_lead.is_none()
             && work.lead.as_ref().is_some_and(|l| l.kind == "chatgpt")
-            && self.should_check_rollover(&work)
         {
-            if let Some(reason) = rollover.automatic_reason(&work) {
+            let threshold_due =
+                work.budget.lead_rollover_turns > 0 && self.should_check_rollover(&work);
+            if let Some(reason) = rollover.automatic_reason(&work, threshold_due) {
                 relay_log(
                     "lead_rollover_auto_triggered",
                     json!({ "work_id": work.work_id, "reason": reason }),
@@ -723,281 +764,6 @@ impl RelayEngine {
         Ok(summary)
     }
 
-    fn attempt_delivery(
-        &self,
-        work: &mut WorkRecord,
-        index: usize,
-        delivery: &mut PendingDelivery,
-    ) -> Result<DeliveryOutcome, String> {
-        use DeliveryOutcome::{Defer, Delivered, Escalate};
-        let defer = |reason: String| Defer {
-            reason,
-            min_backoff_secs: 0,
-        };
-        let defer_with = |reason: String, min_backoff_secs: u64| Defer {
-            reason,
-            min_backoff_secs,
-        };
-        if !delivery.receipts_tracked {
-            // Older wakeups could contain only a fragment of the acknowledged range.
-            delivery.advance_seq_to = None;
-            if delivery.attempts != 0
-                && delivery.dispatch.is_none()
-                && !delivery.last_error.as_deref().is_some_and(|error| {
-                    error.starts_with("front_chat_busy(")
-                        || matches!(
-                            error,
-                            "lead_chat_busy" | "lead_codex_active" | "no_lead_bound"
-                        )
-                })
-            {
-                return Ok(defer("legacy_delivery_receipt_unconfirmed".to_owned()));
-            }
-            delivery.receipts_tracked = true;
-        }
-        if delivery.target == "front" {
-            if !delivery.notified {
-                delivery.notified = self.owners.send_notification(
-                    &work.work_id,
-                    &delivery.title,
-                    &delivery.payload_text,
-                );
-            }
-            if delivery.dispatch.is_none()
-                && (work.delivery_mode == "notify_only" || work.front.latest_chat_id.is_none())
-            {
-                delivery.advance_seq_to = None;
-                return Ok(if delivery.notified {
-                    Delivered
-                } else {
-                    defer("front_notification_failed".to_owned())
-                });
-            }
-        }
-        if let Some(dispatch) = &delivery.dispatch {
-            let marker = format!("[ORCH_DELIVERY {}]", dispatch.lane_id);
-            let confirmation = match dispatch.backend.as_str() {
-                "chatgpt" => {
-                    let rem = self.owners.chatgpt_cooldown_remaining_secs();
-                    if rem > 0 {
-                        return Ok(defer_with("backend_http_429".to_owned(), rem));
-                    }
-                    let account_matches = match work.account_id.as_deref() {
-                        Some(account) => self
-                            .owners
-                            .chatgpt_account_id()
-                            .is_ok_and(|actual| actual == account),
-                        None => false,
-                    };
-                    if !account_matches {
-                        return Ok(defer("delivery_account_unverified".to_owned()));
-                    }
-                    self.owners.chatgpt_has_delivery_marker(
-                        &dispatch.ref_id,
-                        if delivery.target == "lead" {
-                            work.project_id.as_deref()
-                        } else {
-                            None
-                        },
-                        &marker,
-                    )
-                }
-                "codex" => self.owners.codex_has_delivery_marker(
-                    dispatch.profile.as_deref(),
-                    &dispatch.ref_id,
-                    &marker,
-                ),
-                _ => return Ok(defer("unsupported_delivery_backend".to_owned())),
-            };
-            return Ok(match confirmation {
-                Ok(true) => Delivered,
-                Ok(false) => {
-                    if delivery.attempts >= MAX_UNCONFIRMED_READBACK_ATTEMPTS {
-                        Escalate(format!(
-                            "delivery_receipt_unconfirmed after {} verified readbacks",
-                            delivery.attempts
-                        ))
-                    } else {
-                        defer("delivery_receipt_unconfirmed".to_owned())
-                    }
-                }
-                Err(error) => {
-                    let backoff = if error.contains("backend_http_429")
-                        || error.contains("retry_after_cooldown")
-                    {
-                        self.owners
-                            .chatgpt_cooldown_remaining_secs()
-                            .max(DEFAULT_429_COOLDOWN_SECS)
-                    } else {
-                        0
-                    };
-                    defer_with(error, backoff)
-                }
-            });
-        }
-
-        let lead = match delivery.target.as_str() {
-            "front" => None,
-            "lead" => match &work.lead {
-                Some(lead) => Some(lead.clone()),
-                None => return Ok(defer("no_lead_bound".to_owned())),
-            },
-            _ => return Ok(defer("unsupported_delivery_target".to_owned())),
-        };
-        let (backend, ref_id, profile) = match &lead {
-            Some(lead) => (
-                lead.kind.as_str(),
-                lead.ref_id.clone(),
-                lead.profile.clone(),
-            ),
-            None => (
-                "chatgpt",
-                work.front
-                    .latest_chat_id
-                    .clone()
-                    .expect("front target checked"),
-                None,
-            ),
-        };
-        if backend == "chatgpt" && work.account_id.is_none() {
-            return Ok(defer("delivery_account_unverified".to_owned()));
-        }
-        if backend == "chatgpt" {
-            let rem = self.owners.chatgpt_cooldown_remaining_secs();
-            if rem > 0 {
-                return Ok(defer_with("backend_http_429".to_owned(), rem));
-            }
-        }
-        let ready = match backend {
-            "chatgpt" => self.owners.chatgpt_observe(&ref_id).and_then(|obs| {
-                if obs.state == "error"
-                    && matches!(
-                        obs.error.as_deref(),
-                        Some("backend_http_429" | "retry_after_cooldown")
-                    )
-                {
-                    Err(format!(
-                        "backend_http_429:retry_after={}",
-                        obs.retry_after_secs.unwrap_or(DEFAULT_429_COOLDOWN_SECS)
-                    ))
-                } else if obs.generating {
-                    Err(format!(
-                        "{}_chat_busy({})",
-                        delivery.target,
-                        obs.remote_stream_status.as_deref().unwrap_or("local")
-                    ))
-                } else {
-                    Ok(())
-                }
-            }),
-            "codex" => self
-                .owners
-                .codex_observe_thread(profile.as_deref(), &ref_id)
-                .and_then(|obs| {
-                    if obs.is_active {
-                        Err("lead_codex_active".to_owned())
-                    } else {
-                        Ok(())
-                    }
-                }),
-            _ => return Ok(defer("unsupported_delivery_backend".to_owned())),
-        };
-        if let Err(error) = ready {
-            let backoff = if error.starts_with("backend_http_429") {
-                self.owners
-                    .chatgpt_cooldown_remaining_secs()
-                    .max(DEFAULT_429_COOLDOWN_SECS)
-            } else {
-                0
-            };
-            return Ok(defer_with(error, backoff));
-        }
-        let lane_id = generate_id("delivery");
-        let marker = format!("[ORCH_DELIVERY {lane_id}]");
-        delivery.dispatch = Some(DeliveryDispatch {
-            backend: backend.to_owned(),
-            ref_id: ref_id.clone(),
-            profile: profile.clone(),
-            lane_id: lane_id.clone(),
-        });
-        work.pending_deliveries[index] = delivery.clone();
-        self.ledger.save_work(work).map_err(|e| e.to_string())?;
-        let prompt = if delivery.target == "lead" && backend == "chatgpt" {
-            crate::rollover::bounded_payload(&format!("{marker}\n{}", delivery.payload_text))
-        } else {
-            format!("{marker}\n{}", delivery.payload_text)
-        };
-        Ok(match backend {
-            "chatgpt" => match self.owners.chatgpt_send_pinned(
-                work,
-                lead.as_ref(),
-                Some(&ref_id),
-                &lane_id,
-                &prompt,
-            ) {
-                Ok(receipt) if crate::rollover::rejected_before_send(&receipt) => {
-                    delivery.dispatch = None;
-                    let err_code = receipt["error"]
-                        .as_str()
-                        .unwrap_or("delivery_rejected")
-                        .to_owned();
-                    let min_backoff = if matches!(
-                        err_code.as_str(),
-                        "backend_http_429" | "retry_after_cooldown"
-                    ) {
-                        parse_retry_after_secs(&receipt)
-                            .unwrap_or(DEFAULT_429_COOLDOWN_SECS)
-                            .max(self.owners.chatgpt_cooldown_remaining_secs())
-                    } else {
-                        0
-                    };
-                    defer_with(err_code, min_backoff)
-                }
-                Ok(receipt)
-                    if receipt["state"] == "error"
-                        && delivery.target == "lead"
-                        && crate::rollover::is_context_limit_error(
-                            receipt["error"].as_str().unwrap_or_default(),
-                        ) =>
-                {
-                    delivery.dispatch = None;
-                    self.invalidate_rollover_check(&work.work_id);
-                    defer_with(
-                        receipt["error"]
-                            .as_str()
-                            .unwrap_or("context_limit")
-                            .to_owned(),
-                        2,
-                    )
-                }
-                Ok(receipt)
-                    if receipt["chat_id"] == ref_id
-                        && matches!(receipt["state"].as_str(), Some("settled" | "in_progress")) =>
-                {
-                    Delivered
-                }
-                Ok(_) => defer("delivery_receipt_unconfirmed".to_owned()),
-                Err(error) => defer(error),
-            },
-            "codex" => match self.owners.codex_dispatch_turn(
-                profile.as_deref(),
-                Some(&ref_id),
-                None,
-                &prompt,
-                lead.as_ref().and_then(|lead| lead.model.as_deref()),
-                None,
-                lead.as_ref()
-                    .and_then(|lead| lead.reasoning_effort.as_deref()),
-                None,
-                |_| Ok(()),
-            ) {
-                Ok((thread, Some(_))) if thread == ref_id => Delivered,
-                Ok(_) => defer("delivery_receipt_unconfirmed".to_owned()),
-                Err(error) => defer(error),
-            },
-            _ => unreachable!("unsupported backend rejected before dispatch"),
-        })
-    }
     fn progress_cancellation(&self, work: &mut WorkRecord) -> Result<(), String> {
         for participant in work.participants.iter_mut().filter(|p| !p.is_terminal()) {
             let stopped = if participant.backend == "shell" {
@@ -1100,438 +866,6 @@ impl RelayEngine {
             }
             _ => false,
         }
-    }
-
-    fn audit_worker_tree(
-        &self,
-        work: &WorkRecord,
-        index: usize,
-        tree: &crate::workspace::WorkerTree,
-    ) -> Result<Vec<String>, String> {
-        let participant = &work.participants[index];
-        let paths = tree.declared_changes(&participant.write_paths)?;
-        let mut conflicts = tree.conflicting_paths(&paths)?;
-        for other in &work.participants {
-            if other.participant_id == participant.participant_id
-                || other
-                    .worktree
-                    .as_ref()
-                    .is_none_or(|other| other.repo != tree.repo)
-            {
-                continue;
-            }
-            for path in &paths {
-                if other
-                    .changed_paths
-                    .iter()
-                    .any(|old| crate::workspace::overlaps(path, old))
-                {
-                    conflicts.push(path.clone());
-                }
-            }
-        }
-        conflicts.sort();
-        conflicts.dedup();
-        if !conflicts.is_empty() {
-            return Err(format!(
-                "Changes in {} overlap another edit: {conflicts:?}",
-                tree.path.display()
-            ));
-        }
-        Ok(paths)
-    }
-
-    fn process_steps(&self, work: &mut WorkRecord, now: u64) -> Result<(), String> {
-        let plan = work.steps.clone();
-        let active = work.participants.iter().any(|p| !p.is_terminal());
-        for step in &plan {
-            let participant = work
-                .participants
-                .iter()
-                .find(|p| p.step_id.as_deref() == Some(&step.step_id));
-            if let Some(p) = participant.filter(|p| p.state == "failed") {
-                if active {
-                    return Ok(());
-                }
-                let detail = p
-                    .result_summary
-                    .clone()
-                    .unwrap_or_else(|| format!("{} failed", step.step_id));
-                let verdict = p.verification.as_ref().and_then(|v| v.verdict);
-                let state = if verdict == Some(Verdict::Fail) {
-                    "failed_verification"
-                } else if step.on_failure == StepFailure::WakeLead
-                    || verdict == Some(Verdict::Inconclusive)
-                {
-                    "waiting_user"
-                } else {
-                    "failed"
-                };
-                let target = if step.on_failure == StepFailure::WakeLead && work.lead.is_some() {
-                    "lead"
-                } else {
-                    "front"
-                };
-                return self.settle_plan(work, state, &detail, target);
-            }
-        }
-        if now.saturating_sub(work.created_at_unix) > work.budget.max_wall_secs {
-            if !active {
-                return self.settle_plan(
-                    work,
-                    "waiting_user",
-                    "The step plan exceeded its time budget.",
-                    "front",
-                );
-            }
-            return Ok(());
-        }
-        for step in &plan {
-            let participant = work
-                .participants
-                .iter()
-                .position(|p| p.step_id.as_deref() == Some(&step.step_id));
-            let idx = if let Some(index) = participant {
-                if work.participants[index].state != "starting" {
-                    continue;
-                }
-                index
-            } else {
-                if work.active_worker_count() >= work.budget.max_concurrent_workers {
-                    continue;
-                }
-                let completed = |id: &str| {
-                    work.participants
-                        .iter()
-                        .any(|p| p.step_id.as_deref() == Some(id) && p.state == "completed")
-                };
-                if !step.depends_on.iter().all(|id| completed(id))
-                    || (step.auto_verify
-                        && (active
-                            || plan
-                                .iter()
-                                .filter(|s| !s.auto_verify)
-                                .any(|s| !completed(&s.step_id))))
-                {
-                    continue;
-                }
-                let lease = self.ledger.lock_writers().map_err(|e| e.to_string())?;
-                let workspace = crate::workspace::root(&step.cwd)?;
-                let (write_workspace, worktree) = match step.isolation {
-                    Isolation::Readonly => (None, None),
-                    Isolation::SharedSerial => {
-                        if self
-                            .ledger
-                            .writer_busy(&workspace)
-                            .map_err(|e| e.to_string())?
-                        {
-                            continue;
-                        }
-                        (Some(workspace), None)
-                    }
-                    Isolation::Worktree => {
-                        if work
-                            .participants
-                            .iter()
-                            .filter(|p| !p.is_terminal())
-                            .any(|p| {
-                                p.worktree
-                                    .as_ref()
-                                    .is_some_and(|tree| tree.repo == workspace)
-                                    && plan
-                                        .iter()
-                                        .find(|spec| p.step_id.as_deref() == Some(&spec.step_id))
-                                        .is_some_and(|spec| {
-                                            spec.write_paths.iter().any(|a| {
-                                                step.write_paths
-                                                    .iter()
-                                                    .any(|b| crate::workspace::overlaps(a, b))
-                                            })
-                                        })
-                            })
-                        {
-                            continue;
-                        }
-                        let tree = match crate::workspace::WorkerTree::plan(
-                            &self.ledger,
-                            &work.work_id,
-                            &step.step_id,
-                            &workspace,
-                        ) {
-                            Ok(tree) => tree,
-                            Err(error) => {
-                                return self.settle_plan(work, "waiting_user", &error, "front")
-                            }
-                        };
-                        (None, Some(tree))
-                    }
-                };
-                let role = if step.auto_verify {
-                    "verifier"
-                } else {
-                    "worker"
-                };
-                let index = work.next_role_index(role);
-                let id = if step.auto_verify {
-                    format!("V{index}")
-                } else {
-                    format!("W{index}")
-                };
-                work.participants.push(Participant {
-                    extra: Default::default(),
-                    participant_id: id.clone(),
-                    index,
-                    role: role.to_owned(),
-                    backend: "shell".to_owned(),
-                    ref_id: id,
-                    turn_id: None,
-                    profile: None,
-                    slug: step.step_id.clone(),
-                    task_summary: step.step_id.clone(),
-                    owner_scope: None,
-                    write_workspace,
-                    step_id: Some(step.step_id.clone()),
-                    worktree,
-                    changed_paths: vec![],
-                    write_paths: step.write_paths.clone(),
-                    call_id: None,
-                    dispatch_id: None,
-                    state: "starting".to_owned(),
-                    result_summary: None,
-                    verification: step.auto_verify.then(|| Verification {
-                        subject: work.verification_subject(),
-                        challenge: generate_id("verify"),
-                        verdict: None,
-                        evidence: vec![],
-                        blocking_issues: vec![],
-                    }),
-                    created_at_unix: now,
-                    updated_at_unix: now,
-                });
-                self.ledger.save_work(work).map_err(|e| e.to_string())?;
-                drop(lease);
-                work.participants.len() - 1
-            };
-            let p = &work.participants[idx];
-            let job = crate::shell_job::ShellJob::new(&self.ledger, &work.work_id, &p.ref_id)
-                .map_err(|e| e.to_string())?;
-            if job.has_owner().map_err(|e| e.to_string())? {
-                work.participants[idx].state = "running".to_owned();
-                self.ledger.save_work(work).map_err(|e| e.to_string())?;
-                continue;
-            }
-            let launch = (|| -> Result<(), String> {
-                let cwd = if let Some(tree) = &p.worktree {
-                    tree.prepare()?;
-                    &tree.path
-                } else {
-                    &step.cwd
-                };
-                job.spawn(
-                    self.ledger.root(),
-                    &work.work_id,
-                    &step.command,
-                    cwd.to_str(),
-                )
-                .map_err(|e| e.to_string())
-            })();
-            if let Err(error) = launch {
-                work.participants[idx].state = "failed".to_owned();
-                work.participants[idx].result_summary = Some(error);
-                self.ledger.save_work(work).map_err(|e| e.to_string())?;
-                return Ok(());
-            }
-        }
-        if work.participants.iter().any(|p| !p.is_terminal())
-            || plan.iter().any(|step| {
-                !work
-                    .participants
-                    .iter()
-                    .any(|p| p.step_id.as_deref() == Some(&step.step_id) && p.state == "completed")
-            })
-        {
-            return Ok(());
-        }
-        if work.verification_policy == VerificationPolicy::IndependentReview
-            && !work
-                .participants
-                .iter()
-                .any(|p| p.role == "verifier" && p.backend != "shell")
-        {
-            return self.start_plan_review(work, &plan[0].cwd, now);
-        }
-        let mut detail = String::new();
-        for p in &work.participants {
-            if let Some(result) = &p.result_summary {
-                detail.push_str(&format!(
-                    "{} {}: {}\n",
-                    p.participant_id,
-                    p.slug,
-                    truncate_chars(result, 180)
-                ));
-            }
-            if let Some(tree) = &p.worktree {
-                detail.push_str(&format!(
-                    "{} changes retained in {} ({})\n",
-                    p.participant_id,
-                    tree.path.display(),
-                    tree.branch
-                ));
-            }
-        }
-        if let Some(v) = work.participants.iter().rev().find_map(|p| {
-            p.verification
-                .as_ref()
-                .filter(|v| matches!(v.verdict, Some(Verdict::Fail | Verdict::Inconclusive)))
-        }) {
-            return self.settle_plan(
-                work,
-                if v.verdict == Some(Verdict::Fail) {
-                    "failed_verification"
-                } else {
-                    "waiting_user"
-                },
-                &detail,
-                "front",
-            );
-        }
-        if work.verification_passed() {
-            self.settle_plan(work, "completed", &detail, "front")?;
-        } else {
-            self.settle_plan(
-                work,
-                "waiting_user",
-                "verification_inconclusive: missing or stale evidence",
-                "front",
-            )?;
-        }
-        Ok(())
-    }
-
-    fn start_plan_review(&self, work: &mut WorkRecord, cwd: &Path, now: u64) -> Result<(), String> {
-        let index = work.next_role_index("verifier");
-        let id = format!("V{index}");
-        let dispatch = generate_id("dispatch");
-        let verification = Verification {
-            subject: work.verification_subject(),
-            challenge: generate_id("verify"),
-            verdict: None,
-            evidence: vec![],
-            blocking_issues: vec![],
-        };
-        let position = work.participants.len();
-        work.participants.push(Participant {
-            extra: Default::default(),
-            participant_id: id,
-            index,
-            role: "verifier".to_owned(),
-            backend: "codex".to_owned(),
-            ref_id: String::new(),
-            turn_id: None,
-            profile: work
-                .lead
-                .as_ref()
-                .filter(|lead| lead.kind == "codex")
-                .and_then(|lead| lead.profile.clone()),
-            slug: "plan-review".to_owned(),
-            task_summary: "Independent review of the completed steps".to_owned(),
-            owner_scope: None,
-            write_workspace: None,
-            step_id: None,
-            worktree: None,
-            changed_paths: vec![],
-            write_paths: vec![],
-            call_id: None,
-            dispatch_id: Some(dispatch.clone()),
-            state: "dispatching".to_owned(),
-            result_summary: None,
-            verification: Some(verification.clone()),
-            created_at_unix: now,
-            updated_at_unix: now,
-        });
-        self.ledger.save_work(work).map_err(|e| e.to_string())?;
-        let evidence: Vec<_> = work.participants.iter().filter(|p| p.role == "worker")
-            .map(|p| json!({"task":p.slug,"output":p.result_summary,"worktree":p.worktree,"paths":p.changed_paths})).collect();
-        let prompt = format!(
-            "[ORCH_DISPATCH {dispatch}]\nIndependently review the actual work and test receipts without editing.\nGoal: {}\nCriteria: {:?}\nWork artifacts: {evidence:?}\nReturn only this JSON object shape: {}",
-            work.goal, work.completion_criteria,
-            json!({"challenge":verification.challenge,"verdict":"pass|fail|inconclusive","evidence_refs":["path or receipt"],"blocking_issues":[]}),
-        );
-        let profile = work.participants[position].profile.clone();
-        let reply = self.owners.codex_dispatch_turn(
-            profile.as_deref(),
-            None,
-            cwd.to_str(),
-            &prompt,
-            None,
-            None,
-            None,
-            Some("never"),
-            |id| {
-                work.participants[position].ref_id = id.to_owned();
-                self.ledger.save_work(work).map_err(|e| e.to_string())
-            },
-        );
-        if let Ok((thread, Some(turn))) = reply {
-            let p = &mut work.participants[position];
-            p.ref_id = thread;
-            p.turn_id = Some(turn);
-            p.state = "running".to_owned();
-            self.ledger.save_work(work).map_err(|e| e.to_string())?;
-        } else if work.participants[position].ref_id.is_empty() {
-            let p = &mut work.participants[position];
-            p.state = "failed".to_owned();
-            p.result_summary = Some(
-                "verification_inconclusive: independent Codex owner was unavailable".to_owned(),
-            );
-            p.verification.as_mut().unwrap().verdict = Some(Verdict::Inconclusive);
-            self.ledger.save_work(work).map_err(|e| e.to_string())?;
-        }
-        Ok(())
-    }
-
-    fn settle_plan(
-        &self,
-        work: &mut WorkRecord,
-        state: &str,
-        detail: &str,
-        target: &str,
-    ) -> Result<(), String> {
-        let delivery_id = "plan:finished".to_owned();
-        let detail = truncate_chars(detail, 4000);
-        self.ledger
-            .append_event_if_absent(
-                work,
-                &delivery_id,
-                "plan.finished",
-                "runtime",
-                &detail,
-                json!({"state":state}),
-            )
-            .map_err(|e| e.to_string())?;
-        work.state = state.to_owned();
-        if let Some(wait) = work.wait_set.as_mut() {
-            wait.armed = false;
-        }
-        enqueue_delivery_if_absent(
-            work,
-            PendingDelivery {
-                delivery_id,
-                target: target.to_owned(),
-                kind: state.to_owned(),
-                title: format!("{} — {state}", work.title),
-                payload_text: format!("Work {} {state}\n{detail}", work.work_id),
-                advance_seq_to: None,
-                dispatch: None,
-                receipts_tracked: true,
-                notified: false,
-                attempts: 0,
-                next_attempt_unix: now_unix(),
-                last_error: None,
-                created_at_unix: now_unix(),
-            },
-        );
-        self.ledger.save_work(work).map_err(|e| e.to_string())
     }
 
     fn continue_with_shell(
@@ -1698,15 +1032,6 @@ impl RelayEngine {
     }
 }
 
-enum DeliveryOutcome {
-    Delivered,
-    Defer {
-        reason: String,
-        min_backoff_secs: u64,
-    },
-    Escalate(String),
-}
-
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ModelVerdict {
@@ -1781,16 +1106,6 @@ fn verifier_result(
         return unverified;
     }
     (result.verdict, result.evidence, result.blocking_issues)
-}
-
-pub fn enqueue_delivery_if_absent(work: &mut WorkRecord, del: PendingDelivery) {
-    if !work
-        .pending_deliveries
-        .iter()
-        .any(|d| d.delivery_id == del.delivery_id)
-    {
-        work.pending_deliveries.push(del);
-    }
 }
 
 fn evaluate_wait_set(
@@ -1895,216 +1210,4 @@ fn build_wakeup_prompt(
         "\nReview the results above. Continue the next round via `@TermuxCodex`/`@TermuxChatGPT`/`@TermuxShell` + `@TermuxOrch` (`orch_dispatch`), or report to the user via `orch_report` (never target your own currently generating chat via `@TermuxChatGPT` and avoid retired `@TermuxBridge`).",
     );
     out
-}
-
-static STOP_FLAG: AtomicBool = AtomicBool::new(false);
-
-extern "C" fn handle_signal(_sig: libc::c_int) {
-    STOP_FLAG.store(true, Ordering::Release);
-}
-
-pub fn run_relay_daemon(
-    ledger: Ledger,
-    owners: OwnerClient,
-    bind_addr: &str,
-    health_url_file: Option<&Path>,
-    poll_ms: u64,
-) -> Result<(), String> {
-    unsafe {
-        libc::signal(libc::SIGTERM, handle_signal as *const () as usize);
-        libc::signal(libc::SIGINT, handle_signal as *const () as usize);
-    }
-    STOP_FLAG.store(false, Ordering::Release);
-
-    let listener = TcpListener::bind(bind_addr)
-        .map_err(|e| format!("failed to bind relay health listener on {bind_addr}: {e}"))?;
-    let local_addr = listener
-        .local_addr()
-        .map_err(|e| format!("failed to read relay local_addr: {e}"))?;
-    if !local_addr.ip().is_loopback() {
-        return Err("termux-orch relay health bind must be loopback".to_owned());
-    }
-    listener
-        .set_nonblocking(true)
-        .map_err(|e| format!("failed to set nonblocking listener: {e}"))?;
-
-    let mut random = [0u8; 32];
-    File::open("/dev/urandom")
-        .and_then(|mut f| f.read_exact(&mut random))
-        .map_err(|e| format!("cannot generate wake token: {e}"))?;
-    let token: String = random.iter().map(|byte| format!("{byte:02x}")).collect();
-    let token_path = health_url_file.map(|url| url.with_file_name("wake.token"));
-    if let (Some(url_file), Some(token_path)) = (health_url_file, &token_path) {
-        if let Some(parent) = url_file.parent().filter(|p| !p.as_os_str().is_empty()) {
-            crate::ledger::ensure_private_dir(parent).map_err(|e| e.to_string())?;
-        }
-        crate::ledger::write_atomic_private(token_path, token.as_bytes())
-            .map_err(|e| e.to_string())?;
-        crate::ledger::write_atomic_private(url_file, format!("http://{local_addr}\n").as_bytes())
-            .map_err(|e| e.to_string())?;
-    }
-
-    let health = Arc::new(RelayHealth::default());
-    let server_health = Arc::clone(&health);
-    let health_owners = owners.clone();
-    let state_root_str = ledger.root().display().to_string();
-    let (wake_tx, wake_rx) = mpsc::sync_channel(1);
-    relay_log(
-        "relay_started",
-        json!({
-            "bind": local_addr.to_string(),
-            "poll_ms": poll_ms.clamp(250, 60_000),
-            "state_root": state_root_str
-        }),
-    );
-    let health_handle = std::thread::spawn(move || {
-        while !STOP_FLAG.load(Ordering::Acquire) {
-            match listener.accept() {
-                Ok((mut stream, _)) => {
-                    let Some(request) = read_http_head(&mut stream) else {
-                        continue;
-                    };
-                    let mut lines = request.split("\r\n");
-                    let mut route = lines.next().unwrap_or_default().split_ascii_whitespace();
-                    let (status, ctype, body) = match (route.next(), route.next()) {
-                        (Some("GET"), Some("/readyz")) => {
-                            ("200 OK", "text/plain", "ready\n".to_owned())
-                        }
-                        (Some("GET"), Some("/healthz" | "/health")) => {
-                            let body = json!({
-                                "ok": true,
-                                "service": "termux-orch-relay",
-                                "version": env!("CARGO_PKG_VERSION"),
-                                "ticks": server_health.ticks.load(Ordering::Acquire),
-                                "last_tick_errors": server_health.last_tick_errors.load(Ordering::Acquire),
-                                "wake_pushes": server_health.wake_pushes.load(Ordering::Acquire),
-                                "last_wake_tick_ms": server_health.last_wake_tick_ms.load(Ordering::Acquire),
-                                "chatgpt_cooldown_remaining_secs": health_owners.chatgpt_cooldown_remaining_secs(),
-                                "chatgpt_cooldown_until_unix": health_owners.chatgpt_cooldown_until_unix(),
-                                "rate_limit_hits": health_owners.rate_limit_hits(),
-                                "remote_chatgpt_calls": health_owners.remote_chatgpt_calls(),
-                                "state_root": state_root_str
-                            })
-                            .to_string();
-                            ("200 OK", "application/json", body)
-                        }
-                        (Some("POST"), Some("/wake")) if token_path.is_some() => {
-                            if authorized_wake(lines, &token) {
-                                server_health.wake_pushes.fetch_add(1, Ordering::Release);
-                                let _ = wake_tx.try_send(Instant::now());
-                                (
-                                    "202 Accepted",
-                                    "application/json",
-                                    r#"{"state":"accepted"}"#.to_owned(),
-                                )
-                            } else {
-                                (
-                                    "401 Unauthorized",
-                                    "application/json",
-                                    r#"{"error":"unauthorized"}"#.to_owned(),
-                                )
-                            }
-                        }
-                        _ => (
-                            "404 Not Found",
-                            "application/json",
-                            r#"{"error":"not_found"}"#.to_owned(),
-                        ),
-                    };
-                    let resp = format!(
-                        "HTTP/1.1 {status}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                        body.len()
-                    );
-                    let _ = stream.set_write_timeout(Some(Duration::from_millis(250)));
-                    let _ = stream.write_all(resp.as_bytes());
-                }
-                Err(_) => std::thread::sleep(Duration::from_millis(25)),
-            }
-        }
-    });
-
-    let engine = RelayEngine::new(ledger, owners);
-    let interval = Duration::from_millis(poll_ms.clamp(250, 60_000));
-    let mut wake_requested = None::<Instant>;
-    while !STOP_FLAG.load(Ordering::Acquire) {
-        if let Some(requested) = wake_requested.take() {
-            health
-                .last_wake_tick_ms
-                .store(requested.elapsed().as_millis() as u64, Ordering::Release);
-        }
-        let tick = engine.tick_once();
-        health
-            .last_tick_errors
-            .store(tick.errors as u64, Ordering::Release);
-        health.ticks.fetch_add(1, Ordering::Release);
-        let deadline = Instant::now() + interval;
-        while !STOP_FLAG.load(Ordering::Acquire) {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                break;
-            }
-            if let Ok(requested) = wake_rx.recv_timeout(remaining.min(Duration::from_millis(200))) {
-                wake_requested = Some(requested);
-                break;
-            }
-        }
-    }
-
-    health_handle
-        .join()
-        .map_err(|_| "health server thread panicked")?;
-    if let Some(url_file) = health_url_file {
-        match fs::remove_file(url_file) {
-            Ok(()) => (),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
-            Err(error) => return Err(format!("cannot remove owned health URL file: {error}")),
-        }
-    }
-    Ok(())
-}
-
-#[derive(Default)]
-struct RelayHealth {
-    ticks: AtomicU64,
-    last_tick_errors: AtomicU64,
-    wake_pushes: AtomicU64,
-    last_wake_tick_ms: AtomicU64,
-}
-
-fn read_http_head(stream: &mut TcpStream) -> Option<String> {
-    let deadline = Instant::now() + Duration::from_millis(250);
-    let mut buffer = [0u8; 4096];
-    let mut used = 0;
-    while used < buffer.len() {
-        let remaining = deadline.checked_duration_since(Instant::now())?;
-        stream.set_read_timeout(Some(remaining)).ok()?;
-        let n = stream.read(&mut buffer[used..]).ok()?;
-        if n == 0 {
-            return None;
-        }
-        used += n;
-        if let Some(end) = buffer[..used].windows(4).position(|w| w == b"\r\n\r\n") {
-            return String::from_utf8(buffer[..end].to_vec()).ok();
-        }
-    }
-    None
-}
-
-fn authorized_wake<'a>(headers: impl Iterator<Item = &'a str>, token: &str) -> bool {
-    let mut auth = headers.filter_map(|line| {
-        let (name, value) = line.split_once(':')?;
-        name.eq_ignore_ascii_case("authorization")
-            .then_some(value.trim())
-    });
-    match (auth.next(), auth.next()) {
-        (Some(value), None) => value.strip_prefix("Bearer ").is_some_and(|given| {
-            given.len() == token.len()
-                && given
-                    .bytes()
-                    .zip(token.bytes())
-                    .fold(0, |diff, (a, b)| diff | (a ^ b))
-                    == 0
-        }),
-        _ => false,
-    }
 }

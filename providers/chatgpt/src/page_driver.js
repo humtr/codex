@@ -469,21 +469,83 @@
     return null;
   }
 
-  async function apiFetch(path, options = {}, timeoutMs = 15000) {
-    // Enforce global 429 cooldown for all backend-api traffic (except direct /me diagnostic probe)
-    // so read/observe/list loops never hammer upstream while rate-limited.
-    if (path !== "/me" && Date.now() < retryAfterUntil) {
-      const rem = String(remainingRetryAfterSecs());
-      return {
-        ok: false,
-        status: 429,
-        error: "backend_http_429",
-        json: null,
-        text: "Retry-After cooldown",
-        retry_after: rem,
-      };
-    }
+  function requestBudget(burst, refillMs, minute) {
+    const time = () => globalThis.performance?.now() ?? Date.now();
+    let tokens = burst;
+    let updated = time();
+    const admitted = [];
+    let rejected = 0;
+    return {
+      take() {
+        const now = Math.max(updated, time());
+        tokens = Math.min(burst, tokens + (now - updated) / refillMs);
+        updated = now;
+        while (admitted.length && admitted[0] <= now - 60000) admitted.shift();
+        const wait = Math.max(
+          (1 - tokens) * refillMs,
+          admitted.length >= minute ? admitted[0] + 60000 - now : 0,
+        );
+        if (wait > 0) {
+          rejected++;
+          return { ok: false, state: "error", status: 0, error: "local_rate_limit",
+            json: null, text: "AppHost request budget exhausted", retry_after: String(Math.ceil(wait / 1000)) };
+        }
+        tokens--;
+        admitted.push(now);
+        return null;
+      },
+      status: () => ({ burst, refill_per_sec: 1000 / refillMs, per_minute: minute, rejected }),
+    };
+  }
 
+  const readBudget = requestBudget(5, 2000, 25);
+  const sendBudget = requestBudget(3, 5000, 10);
+  const conversationReads = new Map();
+  const accountCheckPath = "/accounts/check/v4-2023-04-27";
+  let accountCheck;
+  let accountCheckPending;
+
+  function apiFetch(path, options = {}, timeoutMs = 15000) {
+    const method = (options.method || "GET").toUpperCase();
+    const exempt = path === "/me" || path === "/stop_conversation";
+    if (!exempt && Date.now() < retryAfterUntil) {
+      return Promise.resolve({
+        ok: false, status: 429, error: "backend_http_429", json: null,
+        text: "Retry-After cooldown", retry_after: String(remainingRetryAfterSecs()),
+      });
+    }
+    const unscopedGet = method === "GET" && !options.headers && options.body == null;
+    const cachedAccountCheck = unscopedGet && path === accountCheckPath;
+    if (cachedAccountCheck) {
+      if (accountCheck?.until > Date.now()) return Promise.resolve(accountCheck.result);
+      if (accountCheckPending) return accountCheckPending;
+    }
+    const coalesce = unscopedGet && /^\/conversation\/[^/]+$/.test(path);
+    if (coalesce && conversationReads.has(path)) return conversationReads.get(path);
+    const readOnly = method === "GET" || path === "/aip/connectors/links/list_accessible" ||
+      path === "/ecosystem/call_mcp";
+    const limited = !exempt && (readOnly ? readBudget : sendBudget).take();
+    if (limited) return Promise.resolve(limited);
+    const request = fetchBackend(path, options, timeoutMs);
+    if (cachedAccountCheck) {
+      accountCheckPending = request.then((result) => {
+        if (result.ok) accountCheck = { until: Date.now() + 30000, result };
+        return result;
+      }).finally(() => { accountCheckPending = null; });
+      return accountCheckPending;
+    }
+    if (!coalesce) return request;
+    const shared = request.finally(() => conversationReads.delete(path));
+    conversationReads.set(path, shared);
+    return shared;
+  }
+
+  function backendFailure(res) {
+    return { state: "error", error: res.error || `backend_http_${res.status}`, detail: res.text,
+      ...(res.retry_after ? { retry_after: res.retry_after } : {}) };
+  }
+
+  async function fetchBackend(path, options, timeoutMs) {
     let result;
     if (isElectronAppOrigin()) {
       result = await appHostClient.fetch(path, options, timeoutMs);
@@ -962,7 +1024,7 @@
     return null;
   }
 
-  async function status() {
+  async function status(opts = {}) {
     const loginReq = isLoginRequired();
     let authState = loginReq ? "login_required" : "loading";
     let account = null;
@@ -990,7 +1052,7 @@
         backendError = `${me.error || `backend_http_${me.status}`}: ${truncate(me.text, 200)}`;
       }
 
-      if (authState === "authenticated") {
+      if (authState === "authenticated" && !opts.account_only) {
         const mRes = await apiFetch("/models");
         if (mRes.ok && mRes.json && Array.isArray(mRes.json.models)) {
           models = mRes.json.models.map((m) => ({
@@ -1040,6 +1102,7 @@
       ui_state: uiState,
       completion_ready: completionReady,
       pinned_send: true,
+      rate_limiter: { read: readBudget.status(), send: sendBudget.status() },
       onboarding_visible: onboarding,
       account,
       active_chat_id: (primaryTurn && primaryTurn.chatId) || currentChatIdFromUrl(),
@@ -1058,6 +1121,12 @@
     };
   }
 
+  function updatedUnix(value) {
+    if (typeof value === "number") return value >= 1e12 ? Math.floor(value / 1000) : value;
+    const timestamp = typeof value === "string" ? Date.parse(value) : NaN;
+    return Number.isFinite(timestamp) ? Math.floor(timestamp / 1000) : null;
+  }
+
   async function listChats(opts = {}) {
     const limit = Math.max(1, Math.min(100, Number(opts.limit) || DEFAULT_LIMIT));
     const offset = Math.max(0, Number(opts.cursor) || 0);
@@ -1066,7 +1135,7 @@
       `/conversations?offset=${offset}&limit=${limit}&order=updated&is_archived=${archived}`
     );
     if (!res.ok || !res.json) {
-      return { state: "error", error: res.error || `backend_http_${res.status}`, detail: res.text };
+      return backendFailure(res);
     }
     const items = Array.isArray(res.json.items) ? res.json.items : [];
     const total = Number(res.json.total || items.length);
@@ -1078,6 +1147,7 @@
         title: c.title || "",
         create_time: c.create_time || null,
         update_time: c.update_time || null,
+        update_time_unix: updatedUnix(c.update_time),
         gizmo_id: c.gizmo_id || null,
       })),
       total,
@@ -1128,7 +1198,7 @@
       body: JSON.stringify({ title }),
     });
     if (!res.ok) {
-      return { state: "error", error: res.error || `backend_http_${res.status}`, detail: res.text };
+      return backendFailure(res);
     }
     return { state: "ok", chat_id, title };
   }
@@ -1138,7 +1208,7 @@
     const cursor = opts.cursor ? `&cursor=${encodeURIComponent(opts.cursor)}` : "";
     const res = await apiFetch(`/gizmos/snorlax/sidebar?conversations_per_gizmo=0${cursor}`);
     if (!res.ok || !res.json) {
-      return { state: "error", error: res.error || `backend_http_${res.status}`, detail: res.text };
+      return backendFailure(res);
     }
     const rawItems = Array.isArray(res.json.items) ? res.json.items : [];
     const projects = rawItems.slice(0, limit).map((item) => {
@@ -1157,12 +1227,22 @@
     if (!project_id) {
       return { state: "error", error: "project_id_required", detail: "project_id is required" };
     }
+    if (opts.metadata_only) {
+      const res = await apiFetch(`/gizmos/${encodeURIComponent(project_id)}`);
+      if (!res.ok || !res.json) return backendFailure(res);
+      const gizmo = res.json.gizmo?.gizmo || res.json.gizmo;
+      const name = gizmo?.display?.name || gizmo?.name;
+      if (gizmo?.id !== project_id || typeof name !== "string" || !name) {
+        return { state: "error", error: "project_identity_unavailable" };
+      }
+      return { state: "ok", project_id, name };
+    }
     const cursor = opts.cursor ? `&cursor=${encodeURIComponent(opts.cursor)}` : "";
     const res = await apiFetch(
       `/gizmos/${encodeURIComponent(project_id)}/conversations?limit=${Math.max(1, Math.min(100, Number(opts.limit) || DEFAULT_LIMIT))}${cursor}`
     );
     if (!res.ok || !res.json) {
-      return { state: "error", error: res.error || `backend_http_${res.status}`, detail: res.text };
+      return backendFailure(res);
     }
     const items = Array.isArray(res.json.items) ? res.json.items : [];
     return {
@@ -1172,6 +1252,7 @@
         id: c.id,
         title: c.title || "",
         update_time: c.update_time || null,
+        update_time_unix: updatedUnix(c.update_time),
       })),
       next_cursor: res.json.cursor || null,
     };
@@ -1194,7 +1275,7 @@
       body: JSON.stringify(payload),
     });
     if (!res.ok || !res.json) {
-      return { state: "error", error: res.error || `backend_http_${res.status}`, detail: res.text };
+      return backendFailure(res);
     }
     if (res.json.error) {
       return {
@@ -1233,6 +1314,9 @@
         ? turn
         : null;
 
+    if (opts.local_only && !matchedTurn) {
+      return { state: "not_found", generating: false };
+    }
     if (matchedTurn && matchedTurn.generating) {
       return {
         state: "in_progress",
@@ -1250,9 +1334,16 @@
         lane_id: matchedTurn.laneId,
         error: matchedTurn.error.code,
         detail: matchedTurn.error.detail,
+        ...(matchedTurn.error.retry_after ? { retry_after: matchedTurn.error.retry_after } : {}),
         chat_id: matchedTurn.chatId || requestedChatId,
         generating: false,
       };
+    }
+
+    if (opts.local_only) {
+      return { state: matchedTurn.stopped ? "stopped" : "settled", lane_id: matchedTurn.laneId,
+        chat_id: matchedTurn.chatId, generating: false, message_id: matchedTurn.messageId,
+        assistant_text: matchedTurn.assistantText };
     }
 
     const chatId = requestedChatId || (matchedTurn && matchedTurn.chatId) || currentChatIdFromUrl();
@@ -1275,11 +1366,11 @@
       { method: "GET" },
       8000
     );
-    if (ssRes.status === 429) {
+    if (ssRes.status === 429 || ssRes.error === "local_rate_limit") {
       return {
         state: "error",
         ...(matchedTurn ? { lane_id: matchedTurn.laneId } : {}),
-        error: "backend_http_429",
+        error: ssRes.error || "backend_http_429",
         detail: ssRes.text || "Too many requests",
         ...(ssRes.retry_after ? { retry_after: ssRes.retry_after } : {}),
         chat_id: chatId,
@@ -1302,11 +1393,11 @@
     }
 
     const rd = await readChat({ chat_id: chatId, limit: 10 });
-    if (rd.state === "error" && rd.error === "backend_http_429") {
+    if (rd.state === "error" && ["backend_http_429", "local_rate_limit"].includes(rd.error)) {
       return {
         state: "error",
         ...(matchedTurn ? { lane_id: matchedTurn.laneId } : {}),
-        error: "backend_http_429",
+        error: rd.error,
         detail: rd.detail || "Too many requests",
         ...(rd.retry_after ? { retry_after: rd.retry_after } : {}),
         chat_id: chatId,
@@ -1616,8 +1707,7 @@
       if (!candidate) {
         if (!convRes.ok || !convRes.json) {
           return {
-            state: "error",
-            error: `backend_http_${convRes.status}`,
+            ...backendFailure(convRes),
             detail: convRes.text || "failed to load target conversation",
           };
         }
@@ -1631,6 +1721,8 @@
         if (!projectId && typeof convRes.json.gizmo_id === "string" && convRes.json.gizmo_id) {
           projectId = convRes.json.gizmo_id;
         }
+      } else if (convRes.error === "local_rate_limit" || convRes.status === 429) {
+        return backendFailure(convRes);
       } else if (convRes.ok && convRes.json) {
         const remoteNode = typeof convRes.json.current_node === "string" && convRes.json.current_node
           ? convRes.json.current_node
@@ -1693,6 +1785,8 @@
       resolveDone = resolve;
     });
 
+    let done = false;
+    let dispatched = false;
     const turn = {
       laneId,
       startedAt: new Date().toISOString(),
@@ -1710,8 +1804,13 @@
       items: new Map(),
       donePromise,
       resolveDone: () => {
+        if (done) return;
+        done = true;
         turn.generating = false;
         resolveDone();
+        if (dispatched && opts.orch_wake === true && typeof globalThis.__termuxOrchWake === "function") {
+          globalThis.__termuxOrchWake("settled");
+        }
       },
     };
     // Auth, boot, and conversation reads above yield to other callers.
@@ -2127,6 +2226,13 @@
           false,
         );
       }
+      const limited = sendBudget.take();
+      if (limited) {
+        turn.error = { code: limited.error, detail: limited.text, retry_after: limited.retry_after };
+        turn.resolveDone();
+        return backendFailure(limited);
+      }
+      dispatched = true;
       const handle = await client.startCompletionStream({
         request: requestPayload,
         expectedAccountId: dispatchAccountId || undefined,
@@ -2300,7 +2406,7 @@
   async function resolveChatGptAccounts(preferredAccountId) {
     const accounts = [];
     let ordering = [];
-    const check = await apiFetch("/accounts/check/v4-2023-04-27");
+    const check = await apiFetch(accountCheckPath);
     if (check.ok && check.json && typeof check.json === "object") {
       if (Array.isArray(check.json.account_ordering)) {
         ordering = check.json.account_ordering.filter((x) => typeof x === "string" && x);
@@ -2398,6 +2504,7 @@
       linksRes.ok && linksRes.json && Array.isArray(linksRes.json.links) ? linksRes.json.links : [];
     const visibleLinks = rawLinks.filter(isVisibleConnectorLink);
     const connectors = [];
+    let lookupError = linksRes.ok ? null : linksRes;
     if (includeDetails) {
       const seen = new Set();
       for (const link of visibleLinks.slice(0, 40)) {
@@ -2425,6 +2532,7 @@
               : [],
           });
         } else {
+          lookupError ??= det;
           connectors.push({
             id: cid,
             name: link.name || "",
@@ -2432,10 +2540,12 @@
             auth_status: link.auth_status || null,
             detail_status: det.status,
           });
+          if (det.error === "local_rate_limit" || det.status === 429) break;
         }
       }
     }
     return {
+      lookupError,
       linksStatus: linksRes.status,
       linksOk: linksRes.ok,
       linksError: linksRes.ok ? null : linksRes.text,
@@ -2568,6 +2678,7 @@
     const headers = connectorHeaders(accountId, sku);
 
     const accessible = await fetchAccessibleConnectorDetails(headers, true);
+    if (accessible.lookupError) return backendFailure(accessible.lookupError);
     let existing = accessible.connectors.find((c) => c.tunnel_id === tunnelId) || null;
     if (!existing) {
       const nameConflict = accessible.connectors.find(
@@ -2606,6 +2717,7 @@
         30000
       );
       if (!createRes.ok || !createRes.json || !createRes.json.connector || !createRes.json.connector.id) {
+        if (createRes.error === "local_rate_limit" || createRes.status === 429) return backendFailure(createRes);
         return {
           state: "error",
           error: `connector_create_http_${createRes.status}`,
@@ -2630,6 +2742,9 @@
       linkId = linkCheck.json.link.id;
       authStatus = linkCheck.json.link.auth_status || authStatus;
     } else {
+      if (linkCheck.error === "local_rate_limit" || linkCheck.status === 429) {
+        return { ...backendFailure(linkCheck), connector_id: connectorId, created };
+      }
       const noauthRes = await apiFetch(
         "/aip/connectors/links/noauth",
         {
@@ -2644,6 +2759,9 @@
         20000
       );
       if (!noauthRes.ok) {
+        if (noauthRes.error === "local_rate_limit" || noauthRes.status === 429) {
+          return { ...backendFailure(noauthRes), connector_id: connectorId, created };
+        }
         return {
           state: "error",
           error: `connector_link_http_${noauthRes.status}`,

@@ -1,7 +1,7 @@
 //! Abstract `DriverBackend` trait + real CDP-backed `CdpDriver` executing
 //! the clean-room `page_driver.js` inside the owned Linux ChatGPT AppHost.
 
-use crate::cdp::{LaneSender, STREAM_BINDING};
+use crate::cdp::{LaneSender, ORCH_WAKE_BINDING, STREAM_BINDING};
 use crate::config::ProviderConfig;
 use crate::error::{ProviderError, Result};
 use crate::host::OwnedHost;
@@ -22,6 +22,9 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 pub trait DriverBackend: Send + Sync {
     fn host_running(&self) -> BoxFuture<'_, bool>;
     fn status(&self) -> BoxFuture<'_, Result<Value>>;
+    fn account_status(&self) -> BoxFuture<'_, Result<Value>> {
+        self.status()
+    }
     fn list_chats(&self, params: Value) -> BoxFuture<'_, Result<Value>>;
     fn read_chat(&self, params: Value) -> BoxFuture<'_, Result<Value>>;
     fn rename_chat(&self, params: Value) -> BoxFuture<'_, Result<Value>>;
@@ -54,6 +57,7 @@ pub struct CdpDriver {
     host_running: RwLock<Option<Arc<AtomicBool>>>,
     stopping: watch::Sender<bool>,
     state: Mutex<LiveHostState>,
+    orch_wake: tokio::sync::mpsc::Sender<()>,
 }
 
 impl CdpDriver {
@@ -63,6 +67,7 @@ impl CdpDriver {
         listen_port: u16,
         viewer_slot: ViewerSlot,
     ) -> Arc<Self> {
+        let orch_wake = crate::orch_wake::start(&home);
         Arc::new(Self {
             config,
             home,
@@ -70,11 +75,50 @@ impl CdpDriver {
             viewer_slot,
             host_running: RwLock::new(None),
             stopping: watch::Sender::new(false),
+            orch_wake,
             state: Mutex::new(LiveHostState {
                 host: None,
                 session_id: None,
             }),
         })
+    }
+
+    async fn driver_status(&self, account_only: bool) -> Result<Value> {
+        let running_meta = {
+            let guard = self.state.lock().await;
+            guard.host.as_ref().filter(|_| self.running()).map(|h| {
+                (
+                    h.rootfs.display().to_string(),
+                    h.client.generation.to_string(),
+                )
+            })
+        };
+        let Some((rootfs_str, host_gen)) = running_meta else {
+            let rootfs = self.config.resolved_rootfs(&self.home);
+            let profile = self.config.profile_dir(&self.home);
+            return Ok(json!({
+                "state": "ok",
+                "host_running": false,
+                "rootfs_ready": rootfs.join("usr/bin/chatgpt").is_file(),
+                "rootfs": rootfs.display().to_string(),
+                "profile_dir": profile.display().to_string(),
+                "auth_state": "host_stopped",
+                "models": self.config.model.available,
+                "default_model": self.config.model.default,
+            }));
+        };
+        let mut st = self
+            .ensure_ready_and_call(
+                "status",
+                json!({"account_only": account_only}),
+                Duration::from_secs(30),
+            )
+            .await?;
+        st["host_running"] = json!(true);
+        st["rootfs"] = json!(rootfs_str);
+        st["host_generation"] = json!(host_gen);
+        st["default_model"] = json!(self.config.model.default);
+        Ok(st)
     }
 
     fn running(&self) -> bool {
@@ -188,6 +232,14 @@ impl CdpDriver {
                             Some(s.clone()),
                         )
                         .await?;
+                    client
+                        .request(
+                            "Runtime.addBinding",
+                            json!({"name": ORCH_WAKE_BINDING}),
+                            Some(s.clone()),
+                        )
+                        .await?;
+                    client.route_orch_wake(&s, self.orch_wake.clone());
                     guard.session_id = Some(s.clone());
                     (s, true)
                 }
@@ -279,39 +331,11 @@ impl DriverBackend for CdpDriver {
     }
 
     fn status(&self) -> BoxFuture<'_, Result<Value>> {
-        Box::pin(async move {
-            let running_meta = {
-                let guard = self.state.lock().await;
-                guard.host.as_ref().filter(|_| self.running()).map(|h| {
-                    (
-                        h.rootfs.display().to_string(),
-                        h.client.generation.to_string(),
-                    )
-                })
-            };
-            let Some((rootfs_str, host_gen)) = running_meta else {
-                let rootfs = self.config.resolved_rootfs(&self.home);
-                let profile = self.config.profile_dir(&self.home);
-                return Ok(json!({
-                    "state": "ok",
-                    "host_running": false,
-                    "rootfs_ready": rootfs.join("usr/bin/chatgpt").is_file(),
-                    "rootfs": rootfs.display().to_string(),
-                    "profile_dir": profile.display().to_string(),
-                    "auth_state": "host_stopped",
-                    "models": self.config.model.available,
-                    "default_model": self.config.model.default,
-                }));
-            };
-            let mut st = self
-                .ensure_ready_and_call("status", json!({}), Duration::from_secs(30))
-                .await?;
-            st["host_running"] = json!(true);
-            st["rootfs"] = json!(rootfs_str);
-            st["host_generation"] = json!(host_gen);
-            st["default_model"] = json!(self.config.model.default);
-            Ok(st)
-        })
+        Box::pin(self.driver_status(false))
+    }
+
+    fn account_status(&self) -> BoxFuture<'_, Result<Value>> {
+        Box::pin(self.driver_status(true))
     }
 
     fn list_chats(&self, params: Value) -> BoxFuture<'_, Result<Value>> {

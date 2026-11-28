@@ -12,8 +12,10 @@ mod ledger;
 mod mcp;
 mod owners;
 mod relay;
+mod requests;
 mod rollover;
 mod shell_job;
+mod wake;
 mod workspace;
 
 use crate::ledger::Ledger;
@@ -88,7 +90,7 @@ fn main() {
                 }
             };
             let owners = OwnerClient::new(OwnerConfig::from_env());
-            let mut handler = OrchMcpHandler::new(ledger, owners, default_receipt_dir());
+            let mut handler = OrchMcpHandler::admission(ledger, owners, default_receipt_dir());
             if let Err(e) = serve_stdio(&mut handler) {
                 eprintln!("termux-orch mcp error: {e}");
                 std::process::exit(1);
@@ -96,9 +98,7 @@ fn main() {
         }
         Some("relay") => {
             let mut bind = "127.0.0.1:0".to_owned();
-            let mut health_url_file = env::var_os("HOME").map(|home| {
-                PathBuf::from(home).join(".local/state/codex/services/termux-orch-relay/health.url")
-            });
+            let mut health_url_file = wake::health_url_file();
             let mut poll_ms: u64 = 3000;
             let mut i = 1;
             while i < args.len() {
@@ -129,9 +129,14 @@ fn main() {
                 }
             };
             let owners = OwnerClient::new(OwnerConfig::from_env());
-            if let Err(e) =
-                run_relay_daemon(ledger, owners, &bind, health_url_file.as_deref(), poll_ms)
-            {
+            if let Err(e) = run_relay_daemon(
+                ledger,
+                owners,
+                default_receipt_dir(),
+                &bind,
+                health_url_file.as_deref(),
+                poll_ms,
+            ) {
                 eprintln!("termux-orch relay error: {e}");
                 std::process::exit(1);
             }
@@ -145,7 +150,9 @@ fn main() {
                 std::process::exit(1);
             }
         }
-        Some("tick") => {
+        Some("tick")
+            if args.len() == 1 || args.get(1).is_some_and(|arg| arg == "--requests-only") =>
+        {
             let ledger = match Ledger::open(default_state_root()) {
                 Ok(l) => l,
                 Err(e) => {
@@ -154,6 +161,17 @@ fn main() {
                 }
             };
             let owners = OwnerClient::new(OwnerConfig::from_env());
+            let _executor = ledger.lock_relay().unwrap_or_else(|error| {
+                eprintln!("termux-orch tick: relay execution unavailable: {error}");
+                std::process::exit(1);
+            });
+            if let Err(error) = relay::run_requests(&ledger, &owners, default_receipt_dir()) {
+                eprintln!("termux-orch tick: request processing failed: {error}");
+                std::process::exit(1);
+            }
+            if args.len() > 1 {
+                return;
+            }
             let engine = RelayEngine::new(ledger, owners);
             let tick = engine.tick_once();
             println!(
@@ -428,6 +446,12 @@ mod tests {
                         } else if first.starts_with("POST /control/projects") {
                             st.projects.push(body["name"].as_str().unwrap().to_owned());
                             json!({"state":"ok","project_id":"g-p-orch1","name":body["name"]})
+                        } else if first
+                            .starts_with("GET /control/projects/g-p-orch1?metadata_only=true")
+                        {
+                            json!({"state":"ok","project_id":"g-p-orch1","name":st.projects[0]})
+                        } else if first.starts_with("GET /control/projects/g-p-orch1?") {
+                            json!({"state":"ok","chats":[]})
                         } else if first.starts_with("GET /control/projects?") {
                             let projects: Vec<_> = st
                                 .projects
@@ -436,7 +460,7 @@ mod tests {
                                 .collect();
                             json!({"state":"ok","projects":projects,"next_cursor":null})
                         } else if first.starts_with("GET /control/chats?") {
-                            json!({"state":"ok","chats":[{"id":"chat-f2","title":"New Mobile Chat"}]})
+                            json!({"state":"ok","chats":[{"id":"chat-f2","title":"New Mobile Chat","update_time_unix":ledger::now_unix()}]})
                         } else if first.starts_with("GET /control/chats/chat-f1") {
                             let messages: Vec<_> = st
                                 .sends
@@ -1188,7 +1212,7 @@ mod tests {
                 let method = parts.next().unwrap_or("");
                 let path = parts.next().unwrap_or("");
                 let body = match (method, path) {
-                    ("GET", "/control/status") => json!({
+                    ("GET", "/control/status?account_only=true") => json!({
                         "state":"ok","pinned_send":true,"auth_state":"authenticated",
                         "account":{"account_id":"acc-rl","id":"u1"}
                     }),
@@ -1369,8 +1393,8 @@ mod tests {
         }
         assert_eq!(
             read_calls.load(Ordering::Acquire),
-            1,
-            "automatic_reason must not poll GET /conversation on every 2s tick"
+            0,
+            "a disabled threshold must not read remote conversation history"
         );
 
         // 3. Transient 429 on observe must NOT mark running ChatGPT worker as failed,
@@ -1480,10 +1504,10 @@ mod tests {
 
         let srv = thread::spawn(move || {
             let proj_chats: Vec<Value> = (0..15)
-                .map(|i| json!({"id": format!("pchat-{i}"), "title": format!("P{i}")}))
+                .map(|i| json!({"id": format!("pchat-{i}"), "title": format!("P{i}"), "update_time_unix": ledger::now_unix() - if i == 1 {1} else {601}}))
                 .collect();
             let top_chats: Vec<Value> = (0..15)
-                .map(|i| json!({"id": format!("tchat-{i}"), "title": format!("T{i}")}))
+                .map(|i| json!({"id": format!("tchat-{i}"), "title": format!("T{i}"), "update_time_unix": ledger::now_unix() - if i == 0 {2} else {601}}))
                 .collect();
             while !stop_c.load(Ordering::Acquire) {
                 match listener.accept() {
@@ -1494,6 +1518,10 @@ mod tests {
                         let first = req.lines().next().unwrap_or("");
                         let body = if first.starts_with("GET /control/status") {
                             json!({"state":"ok","pinned_send":true,"auth_state":"authenticated","account":{"account_id":"acc-m","id":"u1"}})
+                        } else if first
+                            .starts_with("GET /control/projects/proj-codex?metadata_only=true")
+                        {
+                            json!({"state":"ok","project_id":"proj-codex","name":"Codex"})
                         } else if first.starts_with("GET /control/projects/proj-codex") {
                             json!({"state":"ok","chats": proj_chats, "next_cursor": "more-p"})
                         } else if first.starts_with("GET /control/projects") {
@@ -1547,7 +1575,7 @@ mod tests {
         });
         let mut handler = mcp::OrchMcpHandler::new(ledger, owners, root.join("receipts"));
 
-        // 1. Marker inside bound project (pchat-1) is resolved and bounded to <= 8 reads.
+        // 1. Marker inside bound project (pchat-1) is resolved and bounded to <= 2 reads.
         let (res_proj, err_proj) = handler.call_tool(
             "orch_work",
             &json!({
@@ -1564,10 +1592,22 @@ mod tests {
         assert!(!err_proj, "{res_proj}");
         assert_eq!(res_proj["front_chat_id"], "pchat-1", "{res_proj}");
         assert!(
-            read_calls.load(Ordering::Acquire) <= 8,
-            "expected <= 8 reads, got {}",
+            read_calls.load(Ordering::Acquire) <= 2,
+            "expected <= 2 reads, got {}",
             read_calls.load(Ordering::Acquire)
         );
+
+        let (conflict, is_error) = handler.call_tool("orch_work", &json!({
+            "action":"create", "call_id":"m-conflict", "title":"Conflict", "goal":"Reject misrouting",
+            "project_scope":"humtr/codex", "project_name":"A different project"
+        }));
+        assert!(is_error, "{conflict}");
+        assert_eq!(conflict["error"], "project_binding_failed");
+        assert!(conflict["detail"]
+            .as_str()
+            .unwrap()
+            .contains("different project_name"));
+        assert!(conflict["work_id"].is_null());
 
         // 2. Marker in top-level chat (tchat-0) is STILL found even when bound project has 15 chats.
         read_calls.store(0, Ordering::Release);
@@ -1586,12 +1626,12 @@ mod tests {
         assert!(!err_top, "{res_top}");
         assert_eq!(res_top["front_chat_id"], "tchat-0", "{res_top}");
         assert!(
-            read_calls.load(Ordering::Acquire) <= 8,
-            "expected <= 8 reads, got {}",
+            read_calls.load(Ordering::Acquire) <= 2,
+            "expected <= 2 reads, got {}",
             read_calls.load(Ordering::Acquire)
         );
 
-        // 3. Missing marker across 30 chats probes at most 8 chats total (never 120).
+        // 3. Missing marker across 30 chats probes at most 2 chats total (never 120).
         read_calls.store(0, Ordering::Release);
         let (res_miss, err_miss) = handler.call_tool(
             "orch_work",
@@ -1609,8 +1649,8 @@ mod tests {
         assert!(res_miss["front_chat_id"].is_null(), "{res_miss}");
         assert_eq!(
             read_calls.load(Ordering::Acquire),
-            8,
-            "missing marker must cap probes at exactly 8"
+            2,
+            "missing marker must cap probes at exactly 2"
         );
 
         // 4. HTTP 429 during marker probe aborts immediately on the 1st read (no cascading storm).

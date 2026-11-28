@@ -42,6 +42,10 @@ run `codex mcp add termux-orch -- termux-orch mcp` with that profile's
 The model selects tools based on what the session can finish itself. Once it
 delegates a fixed sequence, Orch can launch the remaining shell steps and
 deliver the result even if the conversation closes.
+Owner operations return `state: queued` with an `operation_id`. Use
+`orch_call(operation_status)` to read the settled receipt before using its
+Work or participant IDs. Retry an interrupted connection with the original
+`call_id` and payload.
 
 For a project that routinely needs background execution, add a short routing
 rule to its local Codex instructions. Have the model use the registered
@@ -52,7 +56,7 @@ and return the receipt promptly. Ordinary questions can still be answered in
 the current session.
 
 For an isolated test set `ORCH_STATE_DIR` and `ORCH_RECEIPT_DIR` on the MCP
-registration with `--env`, and use the same state directory for its relay.
+registration with `--env`, and use the same state and receipt directories for its relay.
 The Codex MCP process may drop variables from the interactive shell's
 environment.
 

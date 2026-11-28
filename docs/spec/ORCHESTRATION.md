@@ -87,6 +87,10 @@ their meaning:
   names. A call without a project ID or scope leaves the Work unscoped. Existing
   Work bindings are preserved. An uncertain creation is reconciled by lookup
   before any further create is allowed.
+  An explicit name that differs from the saved scope name fails before a
+  project mutation. A pinned project ID is verified by direct lookup. A name
+  lookup without an ID must finish within the bounded discovery budget or
+  require the caller to supply the ID.
 - **Deterministic Session Titles:** Whenever a ChatGPT chat or Codex thread is
   created or bound for a role, `R` automatically applies a uniform, human-readable
   title via `POST /control/chats/{id}/rename` (ChatGPT) or `thread/name/set`
@@ -174,6 +178,8 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
   not trigger a user-event Wait-Set. A previous delivery attempt is reconciled
   at its original destination. Front delivery follows the destination chat's
   project. The Work's project continues to scope its Lead and workers.
+  Marker lookup reads at most two candidates updated in the last ten minutes.
+  A caller can supply the exact Front chat ID when the marker is outside that window.
 - **Safe `inject_and_notify` Delivery:** Before calling `chatgpt-provider`
   `POST /control/send(chat_id=...)` on `F/Fn` or ChatGPT `L`, `R` checks both
   local `activeTurns` and server `/conversation/{id}/stream_status` via
@@ -245,12 +251,13 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
   minimum wake-up cooldown, and `event_id` idempotency. On budget exhaustion,
   `R` transitions the `Work` to `waiting_user` and notifies `F/Fn` instead of
   looping indefinitely.
-  - **Local vs. remote polling separation:** The 2s relay tick observes local
-    state only (Shell exit receipts, Codex UDS daemon, and in-memory
-    `activeTurns` lanes). Remote ChatGPT reads for automatic Lead rollover are
-    never polled unconditionally every 2s; they run reactively on context-limit
-    signals or throttled (`>= 60s` per Work) only when `lead_rollover_turns > 0`
-    or after a Lead delivery settles.
+  - **Local vs. remote polling separation:** Routine relay ticks use Shell
+    exit receipts, Codex UDS state, and the Provider's in-memory ChatGPT turns.
+    Participants without a tracked turn use a known-chat remote observation at
+    most once per minute. Automatic Lead rollover reacts to tracked context-limit
+    errors. The optional turn-count trigger reads history at most once per
+    minute per Work by default. Explicit delivery and reconciliation use the
+    original destination and the Provider admission limits.
   - **Global `429` cooldown gate & 3-state delivery:** `backend_http_429`
     (with `retry_after`, default `60s`) pauses remote ChatGPT calls across all
     Works until cooldown expiry and is classified as `RejectedBeforeSend`
@@ -275,6 +282,30 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
     `/healthz` readiness endpoint + `termux-wake-lock` guidance).
   - `termux-orch mcp` — opt-in `runit` tunnel-wrapped stdio MCP (`termux-orch-tunnel`,
     registered programmatically via `POST /control/connectors` as `@TermuxOrch`).
+- **Asynchronous owner operations.** The MCP process durably accepts Work
+  creation, promotion, Front rebinding, model dispatch and session mutations
+  that require an owner call. `state=queued` includes an `operation_id`.
+  `orch_call(operation_status)` reads that operation's local receipt.
+  `processing` means relay claimed the request. A receipt can include a
+  Work-level `pending` result for owner reconciliation. Retrying
+  an identical call ID retrieves the original receipt. A conflicting payload
+  is rejected. Follow-up dispatch, Wait-Set registration and reporting use the
+  authoritative IDs from the settled operation. Relay runs the owner calls
+  under one owner gate. It reports an interrupted execution as
+  `delivery_unknown` and reconciles any persisted Work intent without replaying
+  an uncertain mutation. Rename and manual rollover extension arguments
+  include a `call_id`. Local reports persist delivery and can request an
+  immediate relay wake. `reconcile_delivery` requests a wake and returns its
+  acceptance separately from delivery. Codex model launches check the selected
+  daemon and its authentication requirement before submitting a turn.
+- **Provider admission and wake.** The AppHost page driver budgets reads
+  (five burst, 0.5/s refill, 25 per rolling minute) and sends/writes (three
+  burst, 0.2/s refill, ten per rolling minute). `/me` and stop are exempt.
+  Admission failures return `local_rate_limit` with `retry_after` before the
+  guarded request reaches ChatGPT. Concurrent equivalent conversation reads
+  share one in-progress request and successful account checks are cached for
+  30 seconds. Provider sends a coalesced authenticated loopback wake on tracked
+  Orch turn settlement. The relay continues periodic recovery if a wake is lost.
 - **Static 6-tool core + disjoint extension slot** (uniform immutable MCP
   annotations `readOnlyHint: true`, `destructiveHint: false`, `openWorldHint: false`):
   1. `orch_works` (`list | read | checkpoint | inbox`)
@@ -282,7 +313,7 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
   3. `orch_dispatch` (`register_worker | register_verifier | wait_set | wait_clear`)
   4. `orch_report` (`milestone | need_user | complete | fail`)
   5. `orch_catalog`
-  6. `orch_call` (`lead_rollover`, `budget_extend`, `reconcile_delivery`, `relay_status`, `rename_session`)
+  6. `orch_call` (`lead_rollover`, `budget_extend`, `reconcile_delivery`, `relay_status`, `rename_session`, `operation_status`)
 - **Phased delivery split:**
   - **Slice 7A:** `chatgpt-provider` server `stream_status` observation +
     `mcp/termux-orch` (`Work Ledger`, `Typed Inbox`, `Wait-Set`, Tier 1–3,
@@ -315,7 +346,11 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
   relay confirms the replacement chat and its creation marker, applies the
   `[L<n>]` title, then persists the new
   generation, history and `lead.rolled_over` Inbox event. Manual rollover can
-  return `pending` while the relay reconciles that transaction.
+  return `pending` while the relay reconciles that transaction. A missing
+  replacement ID is recovered only from the original Provider lane. If that
+  lane cannot identify the chat, the original intent is retained and the Work
+  pauses for user reconciliation. The relay does not scan chat history or
+  resubmit the creation.
 - Callers can fence a Work mutation with `expected_lead_generation`. Where
   accepted as a fence, `lead_ref_id` must also match the current Lead. A
   mismatch returns `stale_lead_generation`. Omission preserves legacy callers.

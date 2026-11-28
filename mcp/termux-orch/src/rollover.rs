@@ -87,14 +87,14 @@ impl<'a> Rollover<'a> {
             reason: truncate_chars(reason, 240),
             dispatched: false,
             chat_id: None,
-            scan_cursor: None,
+            next_probe_at_unix: 0,
             size_rejection: reason == SIZE_REJECTION,
         });
         self.save(work)?;
         self.advance(work)
     }
 
-    pub fn automatic_reason(&self, work: &WorkRecord) -> Option<String> {
+    pub fn automatic_reason(&self, work: &WorkRecord, check_threshold: bool) -> Option<String> {
         let lead = work.lead.as_ref().filter(|l| l.kind == "chatgpt")?;
         if work.account_id.is_none()
             || work.state == "waiting_user"
@@ -104,16 +104,20 @@ impl<'a> Rollover<'a> {
         {
             return None;
         }
-        let chat = self.owners.chatgpt_read_chat(&lead.ref_id, 1).ok()?;
-        if chat["state"] != "ok" || chat["gizmo_id"].as_str() != work.project_id.as_deref() {
-            return None;
-        }
-        let error = chat["local_turn_error"].as_str().unwrap_or_default();
+        let local = self.owners.chatgpt_observe_chat(&lead.ref_id, true).ok()?;
+        let error = local.error.as_deref().unwrap_or_default();
         if error == "input_too_large" {
             return Some(SIZE_REJECTION.to_owned());
         }
         if is_context_limit_error(error) {
             return Some(format!("context limit ({error})"));
+        }
+        if !check_threshold || work.budget.lead_rollover_turns == 0 || local.generating {
+            return None;
+        }
+        let chat = self.owners.chatgpt_read_chat(&lead.ref_id, 1).ok()?;
+        if chat["state"] != "ok" || chat["gizmo_id"].as_str() != work.project_id.as_deref() {
+            return None;
         }
         let count = chat["user_turn_count"]
             .as_u64()?
@@ -140,9 +144,12 @@ impl<'a> Rollover<'a> {
             .checked_add(1)
             .ok_or("lead_generation_exhausted")?;
         let project = work.project_id.as_deref();
-        self.verify_account(work)?;
+        if now_unix() < rollover.next_probe_at_unix {
+            return Ok(false);
+        }
         let marker = format!("[ORCH_ROLLOVER {}]", rollover.lane_id);
         if !rollover.dispatched {
+            self.verify_account(work)?;
             let checkpoint = self
                 .ledger
                 .read_checkpoint(&work.work_id)
@@ -189,60 +196,56 @@ impl<'a> Rollover<'a> {
         }
 
         if rollover.chat_id.is_none() || rollover.size_rejection {
-            if let Ok(lane) = self.owners.chatgpt_observe_lane(&rollover.lane_id) {
-                if lane["lane_id"] == rollover.lane_id {
-                    if rollover.size_rejection
-                        && lane["state"] == "error"
-                        && lane["error"] == "input_too_large"
-                    {
-                        return self.finish_size_rejection(work, &rollover.lane_id);
-                    }
-                    rollover.chat_id = lane["chat_id"]
-                        .as_str()
-                        .map(ToOwned::to_owned)
-                        .or(rollover.chat_id);
-                    if rollover.size_rejection && lane["generating"] == true {
-                        work.lead_rollover = Some(rollover);
-                        self.save(work)?;
-                        return Ok(false);
-                    }
+            let lane = self.owners.chatgpt_observe_lane(&rollover.lane_id)?;
+            if lane["lane_id"] == rollover.lane_id {
+                if rollover.size_rejection
+                    && lane["state"] == "error"
+                    && lane["error"] == "input_too_large"
+                {
+                    return self.finish_size_rejection(work, &rollover.lane_id);
+                }
+                rollover.chat_id = lane["chat_id"]
+                    .as_str()
+                    .map(ToOwned::to_owned)
+                    .or(rollover.chat_id);
+                if lane["generating"] == true
+                    && (rollover.size_rejection || rollover.chat_id.is_none())
+                {
+                    work.lead_rollover = Some(rollover);
+                    self.save(work)?;
+                    return Ok(false);
                 }
             }
         }
         if rollover.chat_id.is_none() {
-            // An accepted turn can outlive the provider lane cache. Recover only
-            // from the unique marker in the pinned project. Absence never licenses replay.
-            let chats = self
-                .owners
-                .chatgpt_chat_page(project, rollover.scan_cursor.as_deref())?;
-            if let Some(rows) = chats["chats"].as_array() {
-                for row in rows {
-                    if let Some(id) = row["id"].as_str() {
-                        if self.has_marker(id, project, &marker)? {
-                            rollover.chat_id = Some(id.to_owned());
-                            break;
-                        }
-                    }
-                }
-            }
-            let cursor = chats["next_cursor"]
-                .as_str()
-                .filter(|cursor| !cursor.is_empty());
-            rollover.scan_cursor = cursor
-                .filter(|cursor| Some(*cursor) != rollover.scan_cursor.as_deref())
-                .map(ToOwned::to_owned);
+            work.state = "waiting_user".to_owned();
+            self.ledger
+                .append_event_if_absent(
+                    work,
+                    &format!("rollover-unconfirmed:{}", rollover.lane_id),
+                    "lead.rollover_unconfirmed",
+                    "runtime",
+                    "Replacement chat ID is unavailable from the original Provider lane",
+                    json!({"lane_id": rollover.lane_id}),
+                )
+                .map_err(|error| error.to_string())?;
+            work.lead_rollover = Some(rollover);
+            self.save(work)?;
+            return Ok(false);
         }
         work.lead_rollover = Some(rollover.clone());
         self.save(work)?;
-        let Some(chat_id) = rollover.chat_id.as_deref() else {
-            return Ok(false);
-        };
-        if !self.has_marker(chat_id, project, &marker)? {
+        let chat_id = rollover.chat_id.clone().expect("replacement ID checked");
+        self.verify_account(work)?;
+        if !self.has_marker(&chat_id, project, &marker)? {
+            rollover.next_probe_at_unix = now_unix() + 15;
+            work.lead_rollover = Some(rollover);
+            self.save(work)?;
             return Ok(false);
         }
 
         let title = format_lead_title(&work.session_prefixes, generation, &work.title);
-        let renamed = self.owners.chatgpt_rename_chat(chat_id, &title)?;
+        let renamed = self.owners.chatgpt_rename_chat(&chat_id, &title)?;
         if renamed["state"] != "ok" {
             return Err("lead_rename_failed".to_owned());
         }
@@ -418,7 +421,7 @@ impl<'a> Rollover<'a> {
         project: Option<&str>,
         marker: &str,
     ) -> Result<bool, String> {
-        let chat = self.owners.chatgpt_read_chat(chat_id, 100)?;
+        let chat = self.owners.chatgpt_read_chat(chat_id, 12)?;
         Ok(chat["state"] == "ok"
             && chat["gizmo_id"].as_str() == project
             && crate::owners::has_user_marker(&chat, marker))
@@ -451,5 +454,6 @@ pub(crate) fn rejected_before_send(receipt: &Value) -> bool {
                 | "generation_already_active"
                 | "backend_http_429"
                 | "retry_after_cooldown"
+                | "local_rate_limit"
         )
 }

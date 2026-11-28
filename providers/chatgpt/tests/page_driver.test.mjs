@@ -11,7 +11,7 @@ const DRIVER_SRC = fs.readFileSync(
   "utf8"
 );
 
-function createMockEnv({ url = "https://chatgpt.com/c/conv-12345678", apiMap = {}, completionBehavior, localFunctionSubmit } = {}) {
+function createMockEnv({ url = "https://chatgpt.com/c/conv-12345678", apiMap = {}, completionBehavior, localFunctionSubmit, now = Date.now, afterBackendCall = () => {}, orchWake = () => {} } = {}) {
   const startCalls = [];
   const cancelCalls = [];
   const stopCalls = [];
@@ -87,8 +87,10 @@ function createMockEnv({ url = "https://chatgpt.com/c/conv-12345678", apiMap = {
     crypto: { randomUUID: () => `uuid-test-${++uuidSeq}`, subtle: webcrypto.subtle },
     __termuxMockCompletionClient: mockCompletionClient,
     __termuxMockLocalFunctionSubmit: localFunctionSubmit,
+    __termuxOrchWake: orchWake,
     __termuxChatGptStream: (data) => streamUpdates.push(JSON.parse(data)),
     fetch: async (reqUrl, opts = {}) => {
+      afterBackendCall();
       const key = `${(opts.method || "GET").toUpperCase()} ${reqUrl}`;
       const hit = apiMap[key] || apiMap[reqUrl];
       if (!hit) {
@@ -106,7 +108,7 @@ function createMockEnv({ url = "https://chatgpt.com/c/conv-12345678", apiMap = {
     AbortController,
     Intl,
     URL,
-    Date,
+    Date: class extends Date { static now() { return now(); } },
     TextEncoder,
   };
   sandbox.globalThis = sandbox;
@@ -115,7 +117,9 @@ function createMockEnv({ url = "https://chatgpt.com/c/conv-12345678", apiMap = {
 }
 
 test("page_driver status, chats, linear branch read (no private thoughts), projects, project send, and tool callback parsing", async () => {
+  let time = Date.now();
   const { driver, startCalls } = createMockEnv({
+    now: () => time,
     apiMap: {
       "GET /backend-api/me": {
         status: 200,
@@ -215,6 +219,7 @@ test("page_driver status, chats, linear branch read (no private thoughts), proje
   assert.equal(wire.local_function_signatures, undefined);
   assert.equal(wire.messages[0].content.parts[0], "List directory");
 
+  time += 5000;
   // Instant model must omit thinking_effort (ChatGPT returns 422 if sent on instant models).
   await driver.sendMessage({
     prompt: "Quick reply",
@@ -560,7 +565,11 @@ test("page_driver listConnectors, registerConnector (create+noauth+refresh+probe
   let refreshed = false;
   const seenHeaders = [];
 
+  // Simulate a paced management session while keeping all requests behind admission.
+  let time = Date.now();
   const { driver } = createMockEnv({
+    now: () => time,
+    afterBackendCall: () => { time += 5000; },
     apiMap: {
       "GET /backend-api/accounts/check/v4-2023-04-27": {
         status: 200,
@@ -1430,4 +1439,99 @@ test("continuation syncs advanced ChatGPT App current_node and surfaces missed t
   assert.ok(syncItem, "expected commentary sync item for missed ChatGPT App turn");
   assert.match(syncItem.text, /Continued from phone/);
   assert.match(syncItem.text, /Phone reply done/);
+});
+
+test("one conversation fetch serves concurrent reads and read admission fails fast at the burst and minute limits", async () => {
+  let time = 100_000;
+  let fetches = 0;
+  const { driver } = createMockEnv({
+    now: () => time,
+    afterBackendCall: () => { fetches++; },
+    apiMap: {
+      "GET /backend-api/conversation/original": { status: 200, body: { mapping: {}, title: "Original" } },
+      "GET /backend-api/me": { status: 200, body: { account_id: "fixture" } },
+    },
+  });
+  const reads = await Promise.all([driver.readChat({chat_id: "original", limit: 1}),
+    driver.readChat({chat_id: "original", limit: 2})]);
+  assert.deepEqual(reads.map(read => read.state), ["ok", "ok"]);
+  assert.equal(fetches, 1);
+  for (let index = 0; index < 4; index++) await driver.readChat({ chat_id: "original" });
+  assert.equal(fetches, 5);
+  const burst = await driver.readChat({ chat_id: "original" });
+  assert.equal(burst.error, "local_rate_limit");
+  assert.equal(burst.retry_after, "2");
+  assert.equal(fetches, 5);
+
+  for (let index = 0; index < 20; index++) {
+    time += 2000;
+    assert.equal((await driver.readChat({ chat_id: "original" })).state, "ok");
+  }
+  time += 2000;
+  const minute = await driver.readChat({ chat_id: "original" });
+  assert.equal(minute.error, "local_rate_limit");
+  assert.equal(minute.retry_after, "18");
+  assert.equal(fetches, 25);
+  const status = await driver.status({ account_only: true });
+  assert.equal(status.auth_state, "authenticated");
+  assert.equal(status.rate_limiter.read.rejected, 2);
+  assert.equal(fetches, 26);
+  time += 18000;
+  assert.equal((await driver.readChat({ chat_id: "original" })).state, "ok");
+});
+
+test("send admission enforces burst and minute and wakes once per accepted Orch turn", async () => {
+  let time = 100_000;
+  const wakes = [];
+  const {driver, startCalls} = createMockEnv({
+    now: () => time,
+    orchWake: (payload) => wakes.push(payload),
+    apiMap: { "GET /backend-api/me": { status: 200, body: { account_id: "fixture" } } },
+  });
+  const send = () => driver.sendMessage({ prompt: "test", wait_ms: 1000, orch_wake: true });
+  for (let index = 0; index < 3; index++) assert.equal((await send()).state, "settled");
+  const burst = await send();
+  assert.equal(burst.error, "local_rate_limit");
+  assert.equal(burst.retry_after, "5");
+  assert.equal(startCalls.length, 3);
+  for (let index = 0; index < 7; index++) {
+    time += 5000;
+    assert.equal((await send()).state, "settled");
+  }
+  time += 5000;
+  const minute = await send();
+  assert.equal(minute.error, "local_rate_limit");
+  assert.equal(minute.retry_after, "20");
+  assert.equal(startCalls.length, 10);
+  assert.deepEqual(wakes, Array(10).fill("settled"));
+});
+
+test("pinned project metadata uses one direct read and account checks expire after 30 seconds", async () => {
+  let time = 100_000;
+  let checks = 0;
+  let projects = 0;
+  const {driver} = createMockEnv({
+    now: () => time,
+    apiMap: {
+      "GET /backend-api/gizmos/g-p-fixture": { status: 200, body: () => {
+        projects++;
+        return { gizmo: { gizmo: { id: "g-p-fixture", display: { name: "Fixture" } } } };
+      }},
+      "GET /backend-api/accounts/check/v4-2023-04-27": { status: 200, body: () => {
+        checks++;
+        return {accounts: {fixture: {account: {account_id: "fixture"}}}, account_ordering: ["fixture"]};
+      }},
+    },
+  });
+  const project = await driver.readProject({ project_id: "g-p-fixture", metadata_only: true });
+  assert.equal(project.state, "ok");
+  assert.equal(project.name, "Fixture");
+  assert.equal(projects, 1);
+  await driver.listConnectors({ include_details: false });
+  time += 10000;
+  await driver.listConnectors({ include_details: false });
+  assert.equal(checks, 1);
+  time += 20000;
+  await driver.listConnectors({ include_details: false });
+  assert.equal(checks, 2);
 });

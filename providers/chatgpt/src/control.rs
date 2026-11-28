@@ -94,6 +94,7 @@ struct RenameBody {
 
 #[derive(Deserialize)]
 struct ListProjectsQuery {
+    metadata_only: Option<bool>,
     limit: Option<u64>,
     cursor: Option<String>,
 }
@@ -106,8 +107,20 @@ struct CreateProjectBody {
     memory_scope: Option<String>,
 }
 
-async fn get_status(State(st): State<ControlState>, headers: HeaderMap) -> Result<Json<Value>> {
+#[derive(Deserialize)]
+struct StatusQuery {
+    account_only: Option<bool>,
+}
+
+async fn get_status(
+    State(st): State<ControlState>,
+    headers: HeaderMap,
+    Query(q): Query<StatusQuery>,
+) -> Result<Json<Value>> {
     require_bearer(&headers, &st.token)?;
+    if q.account_only == Some(true) {
+        return Ok(Json(st.driver.account_status().await?));
+    }
     let status = st.driver.status().await?;
     sync_catalog_from_status(
         st.catalog_path.as_deref(),
@@ -219,7 +232,7 @@ async fn read_project(
     let limit = q.limit.unwrap_or(20).clamp(1, 100);
     Ok(Json(
         st.driver
-            .read_project(json!({ "project_id": id, "limit": limit, "cursor": q.cursor }))
+            .read_project(json!({ "project_id": id, "limit": limit, "cursor": q.cursor, "metadata_only": q.metadata_only }))
             .await?,
     ))
 }
@@ -315,7 +328,8 @@ async fn send_message(
                 "prompt": prompt,
                 "model": body.get("model"),
                 "reasoning_effort": body.get("reasoning_effort"),
-                "wait_ms": wait_ms
+                "wait_ms": wait_ms,
+                "orch_wake": body["orch_wake"] == true
             }))
             .await?,
     ))
@@ -347,7 +361,8 @@ async fn observe_chat(
         st.driver
             .observe_chat(json!({
                 "chat_id": body.get("chat_id"),
-                "lane_id": body.get("lane_id")
+                "lane_id": body.get("lane_id"),
+                "local_only": body["local_only"] == true
             }))
             .await?,
     ))

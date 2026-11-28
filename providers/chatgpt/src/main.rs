@@ -11,6 +11,7 @@ mod control;
 mod driver;
 mod error;
 mod host;
+mod orch_wake;
 mod presentation;
 mod responses;
 mod server;
